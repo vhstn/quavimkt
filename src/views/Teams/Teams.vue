@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { Users, Loader2, Plus } from "lucide-vue-next";
-import { useRouter } from "vue-router";
 import AppSidebar from "@/components/layout/AppSidebar.vue";
 import {
   Dialog,
@@ -21,9 +20,9 @@ import {
 } from "@/components/ui/table";
 import { apiFetch } from "@/lib/api";
 
-const router = useRouter();
 const teamName = ref("");
 const isLoading = ref(false);
+const isCreateTeamDialogOpen = ref(false);
 const isSuccessDialogOpen = ref(false);
 const isErrorDialogOpen = ref(false);
 const errorMessage = ref("");
@@ -90,6 +89,7 @@ const handleCreateTeam = async () => {
       throw new Error(apiMessage);
     }
 
+    isCreateTeamDialogOpen.value = false;
     isSuccessDialogOpen.value = true;
     teamName.value = "";
     fetchTeams();
@@ -121,74 +121,101 @@ const handleCreateTeam = async () => {
         </div>
 
         <div
-          class="max-w-2xl bg-white rounded-xl shadow-sm border border-gray-200 p-8"
+          class="max-w-4xl bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
         >
-          <form @submit.prevent="handleCreateTeam" class="space-y-6">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2"
-                >Nome do Time</label
-              >
-              <div class="relative">
-                <Users class="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <input
-                  v-model="teamName"
-                  type="text"
-                  placeholder="Ex: Marketing Digital, Vendas Internas..."
-                  class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all text-gray-900"
-                  required
-                />
-              </div>
-            </div>
-
-            <div class="flex justify-end gap-4">
-              <button
-                type="button"
-                @click="router.back()"
-                class="px-6 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                :disabled="isLoading || !teamName"
-                class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-3 px-8 rounded-lg transition-all disabled:opacity-50"
-              >
-                <Loader2 v-if="isLoading" class="w-4 h-4 mr-2 animate-spin" />
-                <Plus v-else class="w-4 h-4 mr-2" />
-                Criar Time
-              </button>
-            </div>
-          </form>
           <div
-            class="max-w-2xl mt-8 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+            class="p-6 border-b border-gray-200 flex justify-between items-center"
           >
-            <div class="p-0">
-              <div v-if="isFetching" class="flex justify-center p-8">
-                <Loader2 class="w-6 h-6 text-vibrant-green animate-spin" />
-              </div>
+            <h2 class="text-lg font-semibold text-gray-900">
+              Times Cadastrados
+            </h2>
+            <button
+              type="button"
+              @click="isCreateTeamDialogOpen = true"
+              class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2.5 px-4 rounded-lg transition-all shadow-sm text-sm"
+            >
+              <Plus class="w-4 h-4 mr-2" />
+              Adicionar Time
+            </button>
+          </div>
 
-              <Table v-else>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome do Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow v-if="teams.length === 0">
-                    <TableCell class="text-center text-gray-500 py-6">
-                      Nenhum time encontrado.
-                    </TableCell>
-                  </TableRow>
-                  <TableRow v-for="team in teams" :key="team.id">
-                    <TableCell class="font-medium text-gray-900">
-                      {{ team.teamName }}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
+          <div class="p-0">
+            <div v-if="isFetching" class="flex justify-center p-8">
+              <Loader2 class="w-6 h-6 text-vibrant-green animate-spin" />
             </div>
+
+            <Table v-else>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome do Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-if="teams.length === 0">
+                  <TableCell class="text-center text-gray-500 py-6">
+                    Nenhum time encontrado.
+                  </TableCell>
+                </TableRow>
+                <TableRow v-for="team in teams" :key="team.id">
+                  <TableCell class="font-medium text-gray-900">
+                    {{ team.teamName }}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           </div>
         </div>
+
+        <!-- Modal de Cadastro de Time -->
+        <Dialog v-model:open="isCreateTeamDialogOpen">
+          <DialogContent class="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle class="text-gray-900">Cadastrar Time</DialogTitle>
+              <DialogDescription>
+                Informe o nome da equipe para organizar o seu fluxo de trabalho.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form @submit.prevent="handleCreateTeam" class="space-y-4 mt-2">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2"
+                  >Nome do Time</label
+                >
+                <div class="relative">
+                  <Users class="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                  <input
+                    v-model="teamName"
+                    type="text"
+                    placeholder="Ex: Marketing Digital, Vendas Internas..."
+                    class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all text-gray-900"
+                    required
+                    :disabled="isLoading"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter class="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  @click="isCreateTeamDialogOpen = false"
+                  :disabled="isLoading"
+                  class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors border border-gray-200 rounded-lg"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  :disabled="isLoading || !teamName"
+                  class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2 px-6 rounded-lg transition-all disabled:opacity-50 text-sm"
+                >
+                  <Loader2 v-if="isLoading" class="w-4 h-4 mr-2 animate-spin" />
+                  <Plus v-else class="w-4 h-4 mr-2" />
+                  Criar Time
+                </button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         <Dialog v-model:open="isSuccessDialogOpen">
           <DialogContent class="sm:max-w-md">

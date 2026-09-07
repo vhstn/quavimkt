@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { useRouter } from "vue-router";
 import AppSidebar from "@/components/layout/AppSidebar.vue";
 import {
   ImagePlus,
@@ -11,6 +10,7 @@ import {
   Paperclip,
   Download,
   Image as ImageIcon,
+  Plus,
 } from "lucide-vue-next";
 import {
   Dialog,
@@ -30,11 +30,10 @@ import {
 } from "@/components/ui/table";
 import { apiFetch } from "@/lib/api";
 
-const router = useRouter();
-
 // ==========================================
 // ESTADO: Criação de Postagem
 // ==========================================
+const isCreatePostDialogOpen = ref(false);
 const caption = ref("");
 const selectedFiles = ref<File[]>([]);
 const isSubmitting = ref(false);
@@ -73,7 +72,7 @@ const fetchPosts = async () => {
       ? data
       : data.posts ||
         Object.values(data).filter(
-          (item) => typeof item === "object" && item.id,
+          (item) => typeof item === "object" && item?.id,
         ) ||
         [];
   } catch (error: any) {
@@ -193,6 +192,7 @@ const handleSubmit = async () => {
       }
     }
 
+    isCreatePostDialogOpen.value = false;
     isSuccessDialogOpen.value = true;
     caption.value = "";
     selectedFiles.value = [];
@@ -261,105 +261,6 @@ onMounted(() => {
         </div>
 
         <div
-          class="max-w-4xl bg-white rounded-xl shadow-sm border border-gray-200 p-8 mb-8"
-        >
-          <form @submit.prevent="handleSubmit" class="space-y-6">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2"
-                >Legenda da Publicação *</label
-              >
-              <textarea
-                v-model="caption"
-                rows="4"
-                placeholder="O que você quer compartilhar hoje?"
-                class="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all resize-none text-gray-900"
-                :disabled="isSubmitting"
-              ></textarea>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2"
-                >Mídias (Opcional)</label
-              >
-              <div
-                class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition-colors"
-              >
-                <input
-                  type="file"
-                  id="file-upload"
-                  multiple
-                  accept="image/*,video/*"
-                  class="hidden"
-                  @change="handleFileChange"
-                  :disabled="isSubmitting"
-                />
-                <label
-                  for="file-upload"
-                  class="cursor-pointer flex flex-col items-center"
-                >
-                  <div class="p-3 bg-soft-green/30 rounded-full mb-3">
-                    <ImagePlus class="w-5 h-5 text-vibrant-green" />
-                  </div>
-                  <span class="text-sm font-medium text-gray-900"
-                    >Clique para selecionar anexos</span
-                  >
-                </label>
-              </div>
-
-              <div
-                v-if="selectedFiles.length > 0"
-                class="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2"
-              >
-                <div
-                  v-for="(file, index) in selectedFiles"
-                  :key="index"
-                  class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg"
-                >
-                  <div class="flex items-center truncate">
-                    <ImagePlus
-                      class="w-4 h-4 mr-3 text-gray-500 flex-shrink-0"
-                    />
-                    <span class="text-sm text-gray-700 truncate">{{
-                      file.name
-                    }}</span>
-                  </div>
-                  <button
-                    type="button"
-                    @click="removeFile(index)"
-                    :disabled="isSubmitting"
-                    class="text-gray-400 hover:text-red-500 transition-colors p-1"
-                  >
-                    <X class="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div
-              class="flex items-center justify-between pt-4 border-t border-gray-100"
-            >
-              <span
-                class="text-sm font-medium text-vibrant-green animate-pulse"
-              >
-                {{ isSubmitting ? statusMessage : "" }}
-              </span>
-              <button
-                type="submit"
-                :disabled="isSubmitting || !caption"
-                class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2.5 px-8 rounded-lg transition-all disabled:opacity-50"
-              >
-                <Loader2
-                  v-if="isSubmitting"
-                  class="w-4 h-4 mr-2 animate-spin"
-                />
-                <Send v-else class="w-4 h-4 mr-2" />
-                Publicar
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div
           class="max-w-4xl bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
         >
           <div
@@ -368,6 +269,14 @@ onMounted(() => {
             <h2 class="text-lg font-semibold text-gray-900">
               Histórico de Postagens
             </h2>
+            <button
+              type="button"
+              @click="isCreatePostDialogOpen = true"
+              class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2.5 px-4 rounded-lg transition-all shadow-sm text-sm"
+            >
+              <Plus class="w-4 h-4 mr-2" />
+              Nova Postagem
+            </button>
           </div>
 
           <div class="p-0">
@@ -424,6 +333,120 @@ onMounted(() => {
         </div>
       </div>
     </main>
+
+    <!-- Modal de Criação de Postagem -->
+    <Dialog v-model:open="isCreatePostDialogOpen">
+      <DialogContent class="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle class="text-gray-900">Nova Postagem</DialogTitle>
+          <DialogDescription>
+            Crie uma nova publicação para suas redes sociais.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form @submit.prevent="handleSubmit" class="space-y-5 mt-2">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2"
+              >Legenda da Publicação *</label
+            >
+            <textarea
+              v-model="caption"
+              rows="4"
+              placeholder="O que você quer compartilhar hoje?"
+              class="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all resize-none text-gray-900"
+              :disabled="isSubmitting"
+              required
+            ></textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2"
+              >Mídias (Opcional)</label
+            >
+            <div
+              class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition-colors"
+            >
+              <input
+                type="file"
+                id="modal-file-upload"
+                multiple
+                accept="image/*,video/*"
+                class="hidden"
+                @change="handleFileChange"
+                :disabled="isSubmitting"
+              />
+              <label
+                for="modal-file-upload"
+                class="cursor-pointer flex flex-col items-center"
+              >
+                <div class="p-3 bg-soft-green/30 rounded-full mb-3">
+                  <ImagePlus class="w-5 h-5 text-vibrant-green" />
+                </div>
+                <span class="text-sm font-medium text-gray-900"
+                  >Clique para selecionar anexos</span
+                >
+              </label>
+            </div>
+
+            <div
+              v-if="selectedFiles.length > 0"
+              class="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2"
+            >
+              <div
+                v-for="(file, index) in selectedFiles"
+                :key="index"
+                class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg"
+              >
+                <div class="flex items-center truncate">
+                  <ImagePlus class="w-4 h-4 mr-3 text-gray-500 flex-shrink-0" />
+                  <span class="text-sm text-gray-700 truncate">{{
+                    file.name
+                  }}</span>
+                </div>
+                <button
+                  type="button"
+                  @click="removeFile(index)"
+                  :disabled="isSubmitting"
+                  class="text-gray-400 hover:text-red-500 transition-colors p-1"
+                >
+                  <X class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="flex items-center justify-between pt-4 border-t border-gray-100"
+          >
+            <span class="text-sm font-medium text-vibrant-green animate-pulse">
+              {{ isSubmitting ? statusMessage : "" }}
+            </span>
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                @click="isCreatePostDialogOpen = false"
+                :disabled="isSubmitting"
+                class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors border border-gray-200 rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                :disabled="isSubmitting || !caption"
+                class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2 px-6 rounded-lg transition-all disabled:opacity-50 text-sm"
+              >
+                <Loader2
+                  v-if="isSubmitting"
+                  class="w-4 h-4 mr-2 animate-spin"
+                />
+                <Send v-else class="w-4 h-4 mr-2" />
+                Publicar
+              </button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     <Dialog v-model:open="isAssetsDialogOpen">
       <DialogContent class="sm:max-w-md">
