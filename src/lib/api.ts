@@ -13,7 +13,6 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     headers,
   });
 
-  // O Gatilho da Sessão Expirada
   if (response.status === 401) {
     localStorage.removeItem("@MktApp:token");
     router.push("/login?expired=true");

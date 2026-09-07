@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Boxes, Loader2 } from "lucide-vue-next";
+import { Boxes, Loader2, Eye, EyeOff } from "lucide-vue-next";
 import { apiFetch } from "@/lib/api";
 import {
   Dialog,
@@ -16,6 +16,7 @@ const router = useRouter();
 const route = useRoute();
 const email = ref("");
 const password = ref("");
+const showPassword = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref("");
 const isErrorDialogOpen = ref(false);
@@ -146,13 +147,25 @@ const handleResetPassword = async () => {
             class="block text-sm font-medium text-gray-700 mb-2"
             >Senha</label
           >
-          <input
-            id="password"
-            type="password"
-            v-model="password"
-            placeholder="••••••••"
-            class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent transition-all duration-200 text-solid-black placeholder-gray-400"
-          />
+          <div class="relative mb-2">
+            <input
+              id="password"
+              :type="showPassword ? 'text' : 'password'"
+              v-model="password"
+              placeholder="••••••••"
+              class="w-full px-4 pr-10 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent transition-all duration-200 text-solid-black placeholder-gray-400"
+            />
+            <button
+              type="button"
+              @click="showPassword = !showPassword"
+              class="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600 focus:outline-none"
+              :aria-label="showPassword ? 'Ocultar senha' : 'Exibir senha'"
+              tabindex="-1"
+            >
+              <EyeOff v-if="showPassword" class="w-5 h-5" />
+              <Eye v-else class="w-5 h-5" />
+            </button>
+          </div>
           <button
             type="button"
             @click="handleResetPassword"

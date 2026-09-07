@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { Boxes, Loader2, User, Mail, Lock } from "lucide-vue-next";
+import { Boxes, Loader2, User, Mail, Lock, Eye, EyeOff } from "lucide-vue-next";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,8 @@ const fullName = ref("");
 const email = ref("");
 const password = ref("");
 const confirmPassword = ref("");
+const showPassword = ref(false);
+const showConfirmPassword = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref("");
 const isErrorDialogOpen = ref(false);
@@ -175,12 +177,22 @@ const handleRegister = async () => {
           <div class="relative">
             <Lock class="absolute left-3 top-3 w-5 h-5 text-gray-400" />
             <input
-              type="password"
+              :type="showPassword ? 'text' : 'password'"
               v-model="password"
               placeholder="••••••••"
-              class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all"
+              class="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all"
               required
             />
+            <button
+              type="button"
+              @click="showPassword = !showPassword"
+              class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 focus:outline-none"
+              :aria-label="showPassword ? 'Ocultar senha' : 'Exibir senha'"
+              tabindex="-1"
+            >
+              <EyeOff v-if="showPassword" class="w-5 h-5" />
+              <Eye v-else class="w-5 h-5" />
+            </button>
           </div>
         </div>
 
@@ -191,12 +203,22 @@ const handleRegister = async () => {
           <div class="relative">
             <Lock class="absolute left-3 top-3 w-5 h-5 text-gray-400" />
             <input
-              type="password"
+              :type="showConfirmPassword ? 'text' : 'password'"
               v-model="confirmPassword"
               placeholder="••••••••"
-              class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all"
+              class="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all"
               required
             />
+            <button
+              type="button"
+              @click="showConfirmPassword = !showConfirmPassword"
+              class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 focus:outline-none"
+              :aria-label="showConfirmPassword ? 'Ocultar senha' : 'Exibir senha'"
+              tabindex="-1"
+            >
+              <EyeOff v-if="showConfirmPassword" class="w-5 h-5" />
+              <Eye v-else class="w-5 h-5" />
+            </button>
           </div>
         </div>
 
