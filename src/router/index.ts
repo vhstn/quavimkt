@@ -5,6 +5,7 @@ import ResetPassword from "@/views/Login/ResetPassword.vue";
 import Dashboard from "../views/Dashboard/Dashboard.vue";
 import Teams from "@/views/Teams/Teams.vue";
 import Posts from "@/views/Posts/Posts.vue";
+import Campaigns from "@/views/Campaigns/Campaigns.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -44,6 +45,12 @@ const router = createRouter({
       path: "/posts",
       name: "Posts",
       component: Posts,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/campaigns",
+      name: "Campaigns",
+      component: Campaigns,
       meta: { requiresAuth: true },
     },
   ],

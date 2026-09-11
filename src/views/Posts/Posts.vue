@@ -11,6 +11,7 @@ import {
   Download,
   Image as ImageIcon,
   Plus,
+  Building2,
 } from "lucide-vue-next";
 import {
   Dialog,
@@ -31,11 +32,24 @@ import {
 import { apiFetch } from "@/lib/api";
 
 // ==========================================
+// INTERFACES
+// ==========================================
+interface CampaignOption {
+  campaignId: string;
+  name: string;
+  teamId: string;
+  teamName: string;
+}
+
+// ==========================================
 // ESTADO: Criação de Postagem
 // ==========================================
 const isCreatePostDialogOpen = ref(false);
 const caption = ref("");
 const selectedFiles = ref<File[]>([]);
+const availableCampaigns = ref<CampaignOption[]>([]);
+const selectedCampaignKey = ref("");
+const isFetchingCampaigns = ref(false);
 const isSubmitting = ref(false);
 const statusMessage = ref("");
 const errorMessage = ref("");
@@ -117,6 +131,48 @@ const downloadAsset = async (mediaId: string, fileName: string) => {
   }
 };
 
+const fetchUserCampaigns = async () => {
+  isFetchingCampaigns.value = true;
+  try {
+    const teamsResponse = await apiFetch("/identity/users/me/teams");
+    if (!teamsResponse.ok) return;
+
+    const teamsData = await teamsResponse.json();
+    const userTeams = teamsData.teams || [];
+
+    const allCampaigns: CampaignOption[] = [];
+    for (const team of userTeams) {
+      const teamId = team.teamId || team.id;
+      if (!teamId) continue;
+
+      const campResponse = await apiFetch(`/workflow/teams/${teamId}/campaigns`);
+      if (campResponse.ok) {
+        const campData = await campResponse.json();
+        const teamCampaigns = campData.campaigns || [];
+        for (const camp of teamCampaigns) {
+          allCampaigns.push({
+            campaignId: camp.campaignId,
+            name: camp.name,
+            teamId: teamId,
+            teamName: team.teamName,
+          });
+        }
+      }
+    }
+    availableCampaigns.value = allCampaigns;
+  } catch (error) {
+    console.error("Erro ao carregar campanhas para postagens:", error);
+  } finally {
+    isFetchingCampaigns.value = false;
+  }
+};
+
+const openCreatePostModal = () => {
+  selectedCampaignKey.value = "";
+  fetchUserCampaigns();
+  isCreatePostDialogOpen.value = true;
+};
+
 // ==========================================
 // MÉTODOS: Criação e Upload
 // ==========================================
@@ -192,10 +248,32 @@ const handleSubmit = async () => {
       }
     }
 
+    // 3. Vincular à Campanha (se selecionada)
+    if (selectedCampaignKey.value) {
+      const [teamId, campaignId] = selectedCampaignKey.value.split("|");
+      if (teamId && campaignId) {
+        statusMessage.value = "Vinculando postagem à campanha...";
+        const campaignLinkResponse = await apiFetch(
+          `/workflow/teams/${teamId}/campaigns/${campaignId}/posts`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${getToken()}`,
+            },
+            body: JSON.stringify({ postId: postId }),
+          }
+        );
+
+        if (!campaignLinkResponse.ok) await throwApiError(campaignLinkResponse);
+      }
+    }
+
     isCreatePostDialogOpen.value = false;
     isSuccessDialogOpen.value = true;
     caption.value = "";
     selectedFiles.value = [];
+    selectedCampaignKey.value = "";
 
     // Atualiza a tabela imediatamente sem que o usuário precise recarregar a página
     fetchPosts();
@@ -244,6 +322,7 @@ const showError = (msg: string) => {
 // Bootstrap inicial
 onMounted(() => {
   fetchPosts();
+  fetchUserCampaigns();
 });
 </script>
 
@@ -271,7 +350,7 @@ onMounted(() => {
             </h2>
             <button
               type="button"
-              @click="isCreatePostDialogOpen = true"
+              @click="openCreatePostModal"
               class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2.5 px-4 rounded-lg transition-all shadow-sm text-sm"
             >
               <Plus class="w-4 h-4 mr-2" />
@@ -345,6 +424,40 @@ onMounted(() => {
         </DialogHeader>
 
         <form @submit.prevent="handleSubmit" class="space-y-5 mt-2">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+              Vincular à Campanha (Opcional)
+            </label>
+            <div class="relative">
+              <Building2 class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
+              <select
+                v-model="selectedCampaignKey"
+                class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all text-gray-900 bg-white"
+                :disabled="isSubmitting || isFetchingCampaigns"
+              >
+                <option value="">Nenhuma campanha</option>
+                <option
+                  v-for="camp in availableCampaigns"
+                  :key="camp.campaignId"
+                  :value="`${camp.teamId}|${camp.campaignId}`"
+                >
+                  {{ camp.name }} (Time: {{ camp.teamName }})
+                </option>
+              </select>
+            </div>
+            <div
+              v-if="!isFetchingCampaigns && availableCampaigns.length === 0"
+              class="mt-2 text-xs text-gray-500 flex items-center justify-between"
+            >
+              <span>Nenhuma campanha cadastrada. A postagem será criada como avulsa.</span>
+              <router-link
+                to="/campaigns"
+                class="text-vibrant-green hover:underline font-medium ml-2"
+              >
+                Criar Campanha
+              </router-link>
+            </div>
+          </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2"
               >Legenda da Publicação *</label
