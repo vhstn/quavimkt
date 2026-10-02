@@ -6,6 +6,7 @@ import Dashboard from "../views/Dashboard/Dashboard.vue";
 import Teams from "@/views/Teams/Teams.vue";
 import Posts from "@/views/Posts/Posts.vue";
 import Campaigns from "@/views/Campaigns/Campaigns.vue";
+import NotFound from "@/views/NotFound/NotFound.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -52,6 +53,11 @@ const router = createRouter({
       name: "Campaigns",
       component: Campaigns,
       meta: { requiresAuth: true },
+    },
+    {
+      path: "/:pathMatch(.*)*",
+      name: "NotFound",
+      component: NotFound,
     },
   ],
 });
