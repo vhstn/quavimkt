@@ -32,6 +32,12 @@ import {
 import { apiFetch } from "@/lib/api";
 
 // ==========================================
+// CONSTANTES & LIMITES
+// ==========================================
+const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
+const SUPPORTED_EXTENSIONS = [".jpg", ".jpeg"];
+
+// ==========================================
 // INTERFACES
 // ==========================================
 interface CampaignOption {
@@ -39,6 +45,24 @@ interface CampaignOption {
   name: string;
   teamId: string;
   teamName: string;
+}
+
+interface MediaInfo {
+  id: string;
+  fileName: string;
+}
+
+interface PostAsset {
+  media: MediaInfo;
+  sequenceOrder: number;
+}
+
+interface PostItem {
+  id: string;
+  caption: string;
+  createdAt: string;
+  status: string;
+  assets: PostAsset[];
 }
 
 // ==========================================
@@ -59,13 +83,92 @@ const isSuccessDialogOpen = ref(false);
 // ==========================================
 // ESTADO: Listagem de Postagens
 // ==========================================
-const posts = ref<any[]>([]);
+const posts = ref<PostItem[]>([]);
+const totalCount = ref(0);
 const isFetching = ref(true);
 const isAssetsDialogOpen = ref(false);
-const selectedAssets = ref<any[]>([]);
+const selectedAssets = ref<PostAsset[]>([]);
 const isDownloading = ref<Record<string, boolean>>({});
 
 const getToken = () => localStorage.getItem("@MktApp:token");
+
+// ==========================================
+// UTILITÁRIOS
+// ==========================================
+const formatFileSize = (bytes: number) => {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+const formatDate = (dateString: string) => {
+  if (!dateString) return "-";
+  return new Date(dateString).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatStatus = (status?: string) => {
+  if (!status) return "Criado";
+  const normalized = status.toLowerCase();
+  switch (normalized) {
+    case "created":
+      return "Criado";
+    case "scheduled":
+      return "Agendado";
+    case "published":
+      return "Publicado";
+    case "cancelled":
+    case "canceled":
+      return "Cancelado";
+    default:
+      return status;
+  }
+};
+
+const getStatusBadgeClasses = (status?: string) => {
+  if (!status) return "bg-gray-100 text-gray-700 border-gray-200";
+  const normalized = status.toLowerCase();
+  switch (normalized) {
+    case "created":
+      return "bg-gray-100 text-gray-700 border-gray-200";
+    case "scheduled":
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    case "published":
+      return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    case "cancelled":
+    case "canceled":
+      return "bg-red-100 text-red-800 border-red-200";
+    default:
+      return "bg-gray-100 text-gray-700 border-gray-200";
+  }
+};
+
+const throwApiError = async (response: Response) => {
+  const rawText = await response.text();
+  let apiMessage = "Erro interno no servidor.";
+  if (rawText) {
+    try {
+      const errorData = JSON.parse(rawText);
+      apiMessage =
+        errorData.detail || errorData.message || errorData.title || rawText;
+    } catch {
+      apiMessage = rawText;
+    }
+  }
+  throw new Error(apiMessage);
+};
+
+const showError = (msg: string) => {
+  errorMessage.value = msg;
+  isErrorDialogOpen.value = true;
+};
 
 // ==========================================
 // MÉTODOS: Listagem e Download
@@ -82,13 +185,9 @@ const fetchPosts = async () => {
     if (!response.ok) throw new Error("Erro ao carregar postagens.");
 
     const data = await response.json();
-    posts.value = Array.isArray(data)
-      ? data
-      : data.posts ||
-        Object.values(data).filter(
-          (item) => typeof item === "object" && item?.id,
-        ) ||
-        [];
+    posts.value = data.items || data.posts || (Array.isArray(data) ? data : []);
+    totalCount.value =
+      typeof data.totalCount === "number" ? data.totalCount : posts.value.length;
   } catch (error: any) {
     showError(error.message);
   } finally {
@@ -96,7 +195,7 @@ const fetchPosts = async () => {
   }
 };
 
-const viewAssets = (assets: any[]) => {
+const viewAssets = (assets: PostAsset[]) => {
   selectedAssets.value = assets || [];
   isAssetsDialogOpen.value = true;
 };
@@ -178,9 +277,40 @@ const openCreatePostModal = () => {
 // ==========================================
 const handleFileChange = (event: Event) => {
   const input = event.target as HTMLInputElement;
-  if (input.files) {
-    selectedFiles.value = [...selectedFiles.value, ...Array.from(input.files)];
+  if (!input.files || input.files.length === 0) return;
+
+  const filesToAdd: File[] = [];
+  const errors: string[] = [];
+
+  for (const file of Array.from(input.files)) {
+    const extension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+
+    if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+      errors.push(`"${file.name}": Formato inválido. Apenas imagens JPEG (.jpg ou .jpeg) são permitidas.`);
+      continue;
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      errors.push(`"${file.name}": O arquivo excede o limite máximo de 8 MB (${formatFileSize(file.size)}).`);
+      continue;
+    }
+
+    if (file.size === 0) {
+      errors.push(`"${file.name}": O arquivo está vazio.`);
+      continue;
+    }
+
+    filesToAdd.push(file);
   }
+
+  if (errors.length > 0) {
+    showError(errors.join("\n"));
+  }
+
+  if (filesToAdd.length > 0) {
+    selectedFiles.value = [...selectedFiles.value, ...filesToAdd];
+  }
+
   input.value = "";
 };
 
@@ -189,7 +319,7 @@ const removeFile = (index: number) => {
 };
 
 const handleSubmit = async () => {
-  if (!caption.value) {
+  if (!caption.value.trim()) {
     showError("A legenda da postagem é obrigatória.");
     return;
   }
@@ -198,7 +328,7 @@ const handleSubmit = async () => {
   errorMessage.value = "";
 
   try {
-    // 1. Criar Postagem
+    // 1. Criar Postagem no Banco
     statusMessage.value = "Criando postagem...";
     const postResponse = await apiFetch("/media/posts", {
       method: "POST",
@@ -206,23 +336,24 @@ const handleSubmit = async () => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
       },
-      body: JSON.stringify({ caption: caption.value }),
+      body: JSON.stringify({ caption: caption.value.trim() }),
     });
 
     if (!postResponse.ok) await throwApiError(postResponse);
     const rawPostId = await postResponse.text();
     const postId = rawPostId.replace(/^"|"$/g, "");
 
-    // 2. Upload e Vínculo de Mídias
+    // 2. Upload e Vínculo Direto das Mídias (multipart/form-data)
     if (selectedFiles.value.length > 0) {
       for (let i = 0; i < selectedFiles.value.length; i++) {
         const file = selectedFiles.value[i];
-        statusMessage.value = `Enviando arquivo ${i + 1} de ${selectedFiles.value.length}...`;
+        statusMessage.value = `Enviando imagem ${i + 1} de ${selectedFiles.value.length}...`;
 
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("sequenceOrder", (i + 1).toString());
 
-        const uploadResponse = await apiFetch("/media/files", {
+        const assetResponse = await apiFetch(`/media/posts/${postId}/assets`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${getToken()}`,
@@ -230,21 +361,7 @@ const handleSubmit = async () => {
           body: formData,
         });
 
-        if (!uploadResponse.ok) await throwApiError(uploadResponse);
-        const rawMediaId = await uploadResponse.text();
-        const mediaId = rawMediaId.replace(/^"|"$/g, "");
-
-        statusMessage.value = `Vinculando arquivo ${i + 1}...`;
-        const linkResponse = await apiFetch(`/media/posts/${postId}/assets`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${getToken()}`,
-          },
-          body: JSON.stringify({ mediaId: mediaId, sequenceOrder: i + 1 }),
-        });
-
-        if (!linkResponse.ok) await throwApiError(linkResponse);
+        if (!assetResponse.ok) await throwApiError(assetResponse);
       }
     }
 
@@ -275,7 +392,7 @@ const handleSubmit = async () => {
     selectedFiles.value = [];
     selectedCampaignKey.value = "";
 
-    // Atualiza a tabela imediatamente sem que o usuário precise recarregar a página
+    // Atualiza a tabela imediatamente
     fetchPosts();
   } catch (error: any) {
     showError(error.message || "Falha na comunicação com o servidor.");
@@ -283,40 +400,6 @@ const handleSubmit = async () => {
     isSubmitting.value = false;
     statusMessage.value = "";
   }
-};
-
-// ==========================================
-// UTILITÁRIOS
-// ==========================================
-const formatDate = (dateString: string) => {
-  if (!dateString) return "-";
-  return new Date(dateString).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const throwApiError = async (response: Response) => {
-  const rawText = await response.text();
-  let apiMessage = "Erro interno no servidor.";
-  if (rawText) {
-    try {
-      const errorData = JSON.parse(rawText);
-      apiMessage =
-        errorData.message || errorData.detail || errorData.title || rawText;
-    } catch {
-      apiMessage = rawText;
-    }
-  }
-  throw new Error(apiMessage);
-};
-
-const showError = (msg: string) => {
-  errorMessage.value = msg;
-  isErrorDialogOpen.value = true;
 };
 
 // Bootstrap inicial
@@ -345,9 +428,20 @@ onMounted(() => {
           <div
             class="p-6 border-b border-gray-200 flex justify-between items-center"
           >
-            <h2 class="text-lg font-semibold text-gray-900">
-              Histórico de Postagens
-            </h2>
+            <div>
+              <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                Histórico de Postagens
+                <span
+                  v-if="!isFetching && totalCount > 0"
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-soft-green/30 text-vibrant-green"
+                >
+                  {{ totalCount }}
+                </span>
+              </h2>
+              <p class="text-xs text-gray-500 mt-0.5">
+                Publicações cadastradas no sistema.
+              </p>
+            </div>
             <button
               type="button"
               @click="openCreatePostModal"
@@ -386,9 +480,12 @@ onMounted(() => {
                   </TableCell>
                   <TableCell>
                     <span
-                      class="px-2.5 py-1 bg-gray-100 text-gray-700 text-xs rounded-full font-medium"
+                      :class="[
+                        'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border',
+                        getStatusBadgeClasses(post.status),
+                      ]"
                     >
-                      {{ post.status || "Criado" }}
+                      {{ formatStatus(post.status) }}
                     </span>
                   </TableCell>
                   <TableCell class="text-gray-500 text-sm">
@@ -473,9 +570,14 @@ onMounted(() => {
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2"
-              >Mídias (Opcional)</label
-            >
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium text-gray-700">
+                Imagens da Publicação (Opcional)
+              </label>
+              <span class="text-xs text-gray-500">
+                JPEG (.jpg, .jpeg) de até 8 MB
+              </span>
+            </div>
             <div
               class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition-colors"
             >
@@ -483,7 +585,7 @@ onMounted(() => {
                 type="file"
                 id="modal-file-upload"
                 multiple
-                accept="image/*,video/*"
+                accept=".jpg,.jpeg,image/jpeg"
                 class="hidden"
                 @change="handleFileChange"
                 :disabled="isSubmitting"
@@ -496,31 +598,43 @@ onMounted(() => {
                   <ImagePlus class="w-5 h-5 text-vibrant-green" />
                 </div>
                 <span class="text-sm font-medium text-gray-900"
-                  >Clique para selecionar anexos</span
+                  >Clique para selecionar imagens</span
+                >
+                <span class="text-xs text-gray-500 mt-1"
+                  >Selecione uma ou mais fotos para o post</span
                 >
               </label>
             </div>
 
             <div
               v-if="selectedFiles.length > 0"
-              class="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2"
+              class="mt-4 space-y-2 max-h-52 overflow-y-auto pr-2"
             >
               <div
                 v-for="(file, index) in selectedFiles"
                 :key="index"
-                class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg"
+                class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100/50 transition-colors"
               >
-                <div class="flex items-center truncate">
-                  <ImagePlus class="w-4 h-4 mr-3 text-gray-500 flex-shrink-0" />
-                  <span class="text-sm text-gray-700 truncate">{{
-                    file.name
-                  }}</span>
+                <div class="flex items-center truncate space-x-3">
+                  <span
+                    class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-soft-green/40 text-vibrant-green text-xs font-bold flex-shrink-0"
+                  >
+                    {{ index + 1 }}º
+                  </span>
+                  <ImagePlus class="w-4 h-4 text-gray-500 flex-shrink-0" />
+                  <span class="text-sm text-gray-700 truncate font-medium">
+                    {{ file.name }}
+                  </span>
+                  <span class="text-xs text-gray-400 flex-shrink-0">
+                    ({{ formatFileSize(file.size) }})
+                  </span>
                 </div>
                 <button
                   type="button"
                   @click="removeFile(index)"
                   :disabled="isSubmitting"
                   class="text-gray-400 hover:text-red-500 transition-colors p-1"
+                  title="Remover anexo"
                 >
                   <X class="w-4 h-4" />
                 </button>
@@ -561,6 +675,7 @@ onMounted(() => {
       </DialogContent>
     </Dialog>
 
+    <!-- Modal de Visualização de Anexos -->
     <Dialog v-model:open="isAssetsDialogOpen">
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
@@ -576,20 +691,27 @@ onMounted(() => {
         <div class="space-y-3 mt-4 max-h-72 overflow-y-auto pr-2">
           <div
             v-for="asset in selectedAssets"
-            :key="asset.media.id"
+            :key="asset.media?.id || asset.id"
             class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg"
           >
-            <div class="flex items-center truncate mr-4">
-              <FileText class="w-4 h-4 mr-3 text-gray-500 flex-shrink-0" />
+            <div class="flex items-center truncate mr-4 space-x-2">
+              <span
+                v-if="asset.sequenceOrder"
+                class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-soft-green/30 text-vibrant-green text-xs font-semibold flex-shrink-0"
+              >
+                {{ asset.sequenceOrder }}º
+              </span>
+              <FileText class="w-4 h-4 text-gray-500 flex-shrink-0" />
               <span
                 class="text-sm text-gray-700 truncate"
-                :title="asset.media.fileName"
+                :title="asset.media?.fileName || 'Imagem'"
               >
-                {{ asset.media.fileName }}
+                {{ asset.media?.fileName || "Imagem" }}
               </span>
             </div>
 
             <button
+              v-if="asset.media?.id"
               @click="downloadAsset(asset.media.id, asset.media.fileName)"
               :disabled="isDownloading[asset.media.id]"
               class="flex items-center justify-center text-gray-600 hover:text-vibrant-green transition-colors p-2 rounded hover:bg-gray-200 disabled:opacity-50"
@@ -615,19 +737,19 @@ onMounted(() => {
       </DialogContent>
     </Dialog>
 
+    <!-- Modal de Sucesso -->
     <Dialog v-model:open="isSuccessDialogOpen">
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
           <DialogTitle class="text-vibrant-green">Postagem Criada!</DialogTitle>
-          <DialogDescription
-            >Sua postagem e mídias foram processadas com
-            sucesso.</DialogDescription
-          >
+          <DialogDescription>
+            Sua postagem e imagens foram salvas com sucesso.
+          </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <button
             @click="isSuccessDialogOpen = false"
-            class="w-full bg-vibrant-green hover:bg-vibrant-green/90 text-white py-2 rounded-lg transition-colors"
+            class="w-full bg-vibrant-green hover:bg-vibrant-green/90 text-white py-2 rounded-lg transition-colors font-medium"
           >
             Continuar
           </button>
@@ -635,16 +757,17 @@ onMounted(() => {
       </DialogContent>
     </Dialog>
 
+    <!-- Modal de Erro -->
     <Dialog v-model:open="isErrorDialogOpen">
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
           <DialogTitle class="text-red-600">Erro na Operação</DialogTitle>
-          <DialogDescription>{{ errorMessage }}</DialogDescription>
+          <DialogDescription class="whitespace-pre-line">{{ errorMessage }}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <button
             @click="isErrorDialogOpen = false"
-            class="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 py-2 rounded-lg transition-colors"
+            class="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 py-2 rounded-lg transition-colors font-medium"
           >
             Fechar
           </button>
