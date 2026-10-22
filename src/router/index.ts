@@ -6,6 +6,7 @@ import Dashboard from "../views/Dashboard/Dashboard.vue";
 import Teams from "@/views/Teams/Teams.vue";
 import Posts from "@/views/Posts/Posts.vue";
 import Campaigns from "@/views/Campaigns/Campaigns.vue";
+import Settings from "@/views/Settings/Settings.vue";
 import NotFound from "@/views/NotFound/NotFound.vue";
 
 const router = createRouter({
@@ -52,6 +53,12 @@ const router = createRouter({
       path: "/campaigns",
       name: "Campaigns",
       component: Campaigns,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/settings",
+      name: "Settings",
+      component: Settings,
       meta: { requiresAuth: true },
     },
     {
