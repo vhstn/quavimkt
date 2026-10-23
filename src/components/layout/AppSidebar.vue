@@ -8,7 +8,8 @@ import {
   Settings,
   LogOut,
   Users,
-  Boxes
+  Boxes,
+  Share2,
 } from "lucide-vue-next";
 
 const route = useRoute();
@@ -18,6 +19,7 @@ const sidebarItems = [
   { icon: LayoutDashboard, label: "Dashboard", page: "dashboard" },
   { icon: Users, label: "Times", page: "teams" },
   { icon: FileText, label: "Postagens", page: "posts" },
+  { icon: Share2, label: "Publicações", page: "publications" },
   { icon: Building2, label: "Campanhas", page: "campaigns" },
   { icon: BarChart3, label: "Relatórios", page: "analytics" },
   { icon: Settings, label: "Configurações", page: "settings" },

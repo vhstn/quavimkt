@@ -5,7 +5,10 @@ import ResetPassword from "@/views/Login/ResetPassword.vue";
 import Dashboard from "../views/Dashboard/Dashboard.vue";
 import Teams from "@/views/Teams/Teams.vue";
 import Posts from "@/views/Posts/Posts.vue";
+import Publications from "@/views/Publications/Publications.vue";
 import Campaigns from "@/views/Campaigns/Campaigns.vue";
+import Analytics from "@/views/Analytics/Analytics.vue";
+import Settings from "@/views/Settings/Settings.vue";
 import NotFound from "@/views/NotFound/NotFound.vue";
 
 const router = createRouter({
@@ -49,9 +52,31 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/publications",
+      name: "Publications",
+      component: Publications,
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/campaigns",
       name: "Campaigns",
       component: Campaigns,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/analytics",
+      name: "Analytics",
+      component: Analytics,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/reports",
+      redirect: "/analytics",
+    },
+    {
+      path: "/settings",
+      name: "Settings",
+      component: Settings,
       meta: { requiresAuth: true },
     },
     {
