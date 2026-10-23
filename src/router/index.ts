@@ -5,6 +5,7 @@ import ResetPassword from "@/views/Login/ResetPassword.vue";
 import Dashboard from "../views/Dashboard/Dashboard.vue";
 import Teams from "@/views/Teams/Teams.vue";
 import Posts from "@/views/Posts/Posts.vue";
+import Publications from "@/views/Publications/Publications.vue";
 import Campaigns from "@/views/Campaigns/Campaigns.vue";
 import Settings from "@/views/Settings/Settings.vue";
 import NotFound from "@/views/NotFound/NotFound.vue";
@@ -47,6 +48,12 @@ const router = createRouter({
       path: "/posts",
       name: "Posts",
       component: Posts,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/publications",
+      name: "Publications",
+      component: Publications,
       meta: { requiresAuth: true },
     },
     {
