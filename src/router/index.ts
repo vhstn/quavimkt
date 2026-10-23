@@ -7,6 +7,7 @@ import Teams from "@/views/Teams/Teams.vue";
 import Posts from "@/views/Posts/Posts.vue";
 import Publications from "@/views/Publications/Publications.vue";
 import Campaigns from "@/views/Campaigns/Campaigns.vue";
+import Analytics from "@/views/Analytics/Analytics.vue";
 import Settings from "@/views/Settings/Settings.vue";
 import NotFound from "@/views/NotFound/NotFound.vue";
 
@@ -61,6 +62,16 @@ const router = createRouter({
       name: "Campaigns",
       component: Campaigns,
       meta: { requiresAuth: true },
+    },
+    {
+      path: "/analytics",
+      name: "Analytics",
+      component: Analytics,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/reports",
+      redirect: "/analytics",
     },
     {
       path: "/settings",
