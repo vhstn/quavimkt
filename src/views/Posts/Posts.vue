@@ -43,6 +43,7 @@ import { apiFetch } from "@/lib/api";
 // ==========================================
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
 const SUPPORTED_EXTENSIONS = [".jpg", ".jpeg"];
+const MAX_CAPTION_LENGTH = 2200; // Limite máximo da API do Instagram
 
 // ==========================================
 // INTERFACES
@@ -394,6 +395,11 @@ const handleSubmit = async () => {
     return;
   }
 
+  if (caption.value.trim().length > MAX_CAPTION_LENGTH) {
+    showError(`A legenda excede o limite máximo permitido de ${MAX_CAPTION_LENGTH} caracteres pelo Instagram.`);
+    return;
+  }
+
   isSubmitting.value = true;
   errorMessage.value = "";
 
@@ -596,6 +602,11 @@ const handleSavePostEdit = async () => {
   if (!editingPost.value) return;
   if (!editCaption.value.trim()) {
     showError("A legenda da postagem é obrigatória.");
+    return;
+  }
+
+  if (editCaption.value.trim().length > MAX_CAPTION_LENGTH) {
+    showError(`A legenda excede o limite máximo permitido de ${MAX_CAPTION_LENGTH} caracteres pelo Instagram.`);
     return;
   }
 
@@ -901,17 +912,43 @@ onMounted(() => {
             </div>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2"
-              >Legenda da Publicação *</label
-            >
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium text-gray-700">
+                Legenda da Postagem *
+              </label>
+              <span
+                :class="[
+                  'text-xs font-medium transition-colors',
+                  caption.length > MAX_CAPTION_LENGTH
+                    ? 'text-red-600 font-semibold'
+                    : caption.length >= MAX_CAPTION_LENGTH * 0.9
+                    ? 'text-amber-600'
+                    : 'text-gray-500',
+                ]"
+              >
+                {{ caption.length }} / {{ MAX_CAPTION_LENGTH }} caracteres
+              </span>
+            </div>
             <textarea
               v-model="caption"
               rows="4"
+              :maxlength="MAX_CAPTION_LENGTH"
               placeholder="O que você quer compartilhar hoje?"
-              class="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all resize-none text-gray-900"
+              :class="[
+                'w-full p-4 border rounded-lg focus:ring-2 focus:border-transparent outline-none transition-all resize-none text-gray-900',
+                caption.length >= MAX_CAPTION_LENGTH
+                  ? 'border-amber-300 focus:ring-amber-400'
+                  : 'border-gray-200 focus:ring-vibrant-green',
+              ]"
               :disabled="isSubmitting"
               required
             ></textarea>
+            <p
+              v-if="caption.length >= MAX_CAPTION_LENGTH"
+              class="text-xs text-amber-600 mt-1"
+            >
+              Limite máximo de 2.200 caracteres da API do Instagram atingido.
+            </p>
           </div>
 
           <div>
@@ -1022,7 +1059,7 @@ onMounted(() => {
               </button>
               <button
                 type="submit"
-                :disabled="isSubmitting || !caption.trim() || !selectedCampaignKey || availableCampaigns.length === 0"
+                :disabled="isSubmitting || !caption.trim() || caption.length > MAX_CAPTION_LENGTH || !selectedCampaignKey || availableCampaigns.length === 0"
                 class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2 px-6 rounded-lg transition-all disabled:opacity-50 text-sm"
               >
                 <Loader2
@@ -1054,17 +1091,43 @@ onMounted(() => {
         <form @submit.prevent="handleSavePostEdit" class="space-y-5 mt-2">
           <!-- Legenda -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">
-              Legenda da Publicação *
-            </label>
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium text-gray-700">
+                Legenda da Postagem *
+              </label>
+              <span
+                :class="[
+                  'text-xs font-medium transition-colors',
+                  editCaption.length > MAX_CAPTION_LENGTH
+                    ? 'text-red-600 font-semibold'
+                    : editCaption.length >= MAX_CAPTION_LENGTH * 0.9
+                    ? 'text-amber-600'
+                    : 'text-gray-500',
+                ]"
+              >
+                {{ editCaption.length }} / {{ MAX_CAPTION_LENGTH }} caracteres
+              </span>
+            </div>
             <textarea
               v-model="editCaption"
               rows="4"
+              :maxlength="MAX_CAPTION_LENGTH"
               placeholder="Edite o conteúdo da postagem..."
-              class="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all resize-none text-gray-900"
+              :class="[
+                'w-full p-4 border rounded-lg focus:ring-2 focus:border-transparent outline-none transition-all resize-none text-gray-900',
+                editCaption.length >= MAX_CAPTION_LENGTH
+                  ? 'border-amber-300 focus:ring-amber-400'
+                  : 'border-gray-200 focus:ring-vibrant-green',
+              ]"
               :disabled="isSavingEdit"
               required
             ></textarea>
+            <p
+              v-if="editCaption.length >= MAX_CAPTION_LENGTH"
+              class="text-xs text-amber-600 mt-1"
+            >
+              Limite máximo de 2.200 caracteres da API do Instagram atingido.
+            </p>
           </div>
 
           <!-- Mídias Atuais -->
@@ -1299,7 +1362,7 @@ onMounted(() => {
               </button>
               <button
                 type="submit"
-                :disabled="isSavingEdit || !editCaption.trim()"
+                :disabled="isSavingEdit || !editCaption.trim() || editCaption.length > MAX_CAPTION_LENGTH"
                 class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2 px-6 rounded-lg transition-all disabled:opacity-50 text-sm"
               >
                 <Loader2
