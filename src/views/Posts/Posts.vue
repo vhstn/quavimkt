@@ -12,6 +12,12 @@ import {
   Image as ImageIcon,
   Plus,
   Building2,
+  Pencil,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  RefreshCw,
+  Save,
 } from "lucide-vue-next";
 import {
   Dialog,
@@ -65,6 +71,13 @@ interface PostItem {
   assets: PostAsset[];
 }
 
+interface EditableAsset {
+  mediaId: string;
+  fileName: string;
+  sequenceOrder: number;
+  replacementFile?: File;
+}
+
 // ==========================================
 // ESTADO: Criação de Postagem
 // ==========================================
@@ -76,9 +89,19 @@ const selectedCampaignKey = ref("");
 const isFetchingCampaigns = ref(false);
 const isSubmitting = ref(false);
 const statusMessage = ref("");
-const errorMessage = ref("");
-const isErrorDialogOpen = ref(false);
-const isSuccessDialogOpen = ref(false);
+
+// ==========================================
+// ESTADO: Edição de Postagem
+// ==========================================
+const isEditPostDialogOpen = ref(false);
+const editingPost = ref<PostItem | null>(null);
+const editCaption = ref("");
+const editSelectedCampaignKey = ref("");
+const editableAssets = ref<EditableAsset[]>([]);
+const assetsToRemove = ref<string[]>([]);
+const editNewFiles = ref<File[]>([]);
+const isSavingEdit = ref(false);
+const saveStatusMessage = ref("");
 
 // ==========================================
 // ESTADO: Listagem de Postagens
@@ -89,6 +112,21 @@ const isFetching = ref(true);
 const isAssetsDialogOpen = ref(false);
 const selectedAssets = ref<PostAsset[]>([]);
 const isDownloading = ref<Record<string, boolean>>({});
+
+// ==========================================
+// ESTADO: Modais de Feedback
+// ==========================================
+const errorMessage = ref("");
+const isErrorDialogOpen = ref(false);
+const isSuccessDialogOpen = ref(false);
+const successTitle = ref("Postagem Criada!");
+const successMessage = ref("Sua postagem e imagens foram salvas com sucesso.");
+
+const showSuccess = (msg: string, title = "Sucesso!") => {
+  successTitle.value = title;
+  successMessage.value = msg;
+  isSuccessDialogOpen.value = true;
+};
 
 const getToken = () => localStorage.getItem("@MktApp:token");
 
@@ -387,18 +425,289 @@ const handleSubmit = async () => {
     }
 
     isCreatePostDialogOpen.value = false;
-    isSuccessDialogOpen.value = true;
     caption.value = "";
     selectedFiles.value = [];
     selectedCampaignKey.value = "";
 
-    // Atualiza a tabela imediatamente
+    showSuccess("Sua postagem e imagens foram salvas com sucesso.", "Postagem Criada!");
     fetchPosts();
   } catch (error: any) {
     showError(error.message || "Falha na comunicação com o servidor.");
   } finally {
     isSubmitting.value = false;
     statusMessage.value = "";
+  }
+};
+
+// ==========================================
+// MÉTODOS: Edição de Postagem
+// ==========================================
+const openEditPostModal = (post: PostItem) => {
+  editingPost.value = post;
+  editCaption.value = post.caption || "";
+  editSelectedCampaignKey.value = "";
+  fetchUserCampaigns();
+
+  // Clona assets garantindo ordenação sequencial
+  editableAssets.value = (post.assets || [])
+    .slice()
+    .sort((a, b) => a.sequenceOrder - b.sequenceOrder)
+    .map((a) => ({
+      mediaId: a.media?.id || (a as any).id,
+      fileName: a.media?.fileName || "Imagem",
+      sequenceOrder: a.sequenceOrder,
+    }));
+
+  assetsToRemove.value = [];
+  editNewFiles.value = [];
+  isEditPostDialogOpen.value = true;
+};
+
+const moveAssetOrder = (index: number, direction: "up" | "down") => {
+  if (direction === "up" && index > 0) {
+    const temp = editableAssets.value[index];
+    editableAssets.value[index] = editableAssets.value[index - 1];
+    editableAssets.value[index - 1] = temp;
+  } else if (direction === "down" && index < editableAssets.value.length - 1) {
+    const temp = editableAssets.value[index];
+    editableAssets.value[index] = editableAssets.value[index + 1];
+    editableAssets.value[index + 1] = temp;
+  }
+
+  // Renumera sequenceOrder localmente
+  editableAssets.value.forEach((asset, idx) => {
+    asset.sequenceOrder = idx + 1;
+  });
+};
+
+const triggerReplaceAsset = (index: number, event: Event) => {
+  const input = event.target as HTMLInputElement;
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+
+  const extension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+  if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+    showError(`"${file.name}": Formato inválido. Apenas imagens JPEG (.jpg ou .jpeg) são permitidas.`);
+    input.value = "";
+    return;
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    showError(`"${file.name}": O arquivo excede o limite máximo de 8 MB (${formatFileSize(file.size)}).`);
+    input.value = "";
+    return;
+  }
+  if (file.size === 0) {
+    showError(`"${file.name}": O arquivo está vazio.`);
+    input.value = "";
+    return;
+  }
+
+  editableAssets.value[index].replacementFile = file;
+  editableAssets.value[index].fileName = `${file.name} (Substituindo)`;
+  input.value = "";
+};
+
+const removeAssetFromEdit = (index: number) => {
+  const removed = editableAssets.value.splice(index, 1)[0];
+  if (removed && removed.mediaId) {
+    assetsToRemove.value.push(removed.mediaId);
+  }
+
+  // Reajusta sequenceOrder dos restantes
+  editableAssets.value.forEach((asset, idx) => {
+    asset.sequenceOrder = idx + 1;
+  });
+};
+
+const handleEditNewFileChange = (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  if (!input.files || input.files.length === 0) return;
+
+  const filesToAdd: File[] = [];
+  const errors: string[] = [];
+
+  for (const file of Array.from(input.files)) {
+    const extension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+
+    if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+      errors.push(`"${file.name}": Formato inválido. Apenas imagens JPEG (.jpg ou .jpeg) são permitidas.`);
+      continue;
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      errors.push(`"${file.name}": O arquivo excede o limite máximo de 8 MB (${formatFileSize(file.size)}).`);
+      continue;
+    }
+
+    if (file.size === 0) {
+      errors.push(`"${file.name}": O arquivo está vazio.`);
+      continue;
+    }
+
+    filesToAdd.push(file);
+  }
+
+  if (errors.length > 0) {
+    showError(errors.join("\n"));
+  }
+
+  if (filesToAdd.length > 0) {
+    editNewFiles.value = [...editNewFiles.value, ...filesToAdd];
+  }
+
+  input.value = "";
+};
+
+const removeEditNewFile = (index: number) => {
+  editNewFiles.value.splice(index, 1);
+};
+
+const handleSavePostEdit = async () => {
+  if (!editingPost.value) return;
+  if (!editCaption.value.trim()) {
+    showError("A legenda da postagem é obrigatória.");
+    return;
+  }
+
+  isSavingEdit.value = true;
+  errorMessage.value = "";
+  saveStatusMessage.value = "Salvando alterações da legenda...";
+
+  try {
+    const postId = editingPost.value.id;
+
+    // 1. Atualizar Legenda via PUT /api/media/posts/{postId}
+    if (editCaption.value.trim() !== editingPost.value.caption) {
+      const putResponse = await apiFetch(`/media/posts/${postId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({ caption: editCaption.value.trim() }),
+      });
+
+      if (!putResponse.ok) await throwApiError(putResponse);
+    }
+
+    // 2. Substituir mídias com arquivos selecionados
+    for (const asset of editableAssets.value) {
+      if (asset.replacementFile) {
+        saveStatusMessage.value = `Substituindo "${asset.replacementFile.name}"...`;
+        const formData = new FormData();
+        formData.append("file", asset.replacementFile);
+
+        const replaceResponse = await apiFetch(
+          `/media/posts/${postId}/assets/${asset.mediaId}`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${getToken()}`,
+            },
+            body: formData,
+          }
+        );
+
+        if (!replaceResponse.ok) await throwApiError(replaceResponse);
+      }
+    }
+
+    // 3. Remover mídias marcadas para exclusão
+    if (assetsToRemove.value.length > 0) {
+      for (let i = 0; i < assetsToRemove.value.length; i++) {
+        const mediaId = assetsToRemove.value[i];
+        saveStatusMessage.value = `Removendo imagem ${i + 1} de ${assetsToRemove.value.length}...`;
+
+        const deleteResponse = await apiFetch(
+          `/media/posts/${postId}/assets/${mediaId}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${getToken()}`,
+            },
+          }
+        );
+
+        if (!deleteResponse.ok && deleteResponse.status !== 404) {
+          await throwApiError(deleteResponse);
+        }
+      }
+    }
+
+    // 4. Reordenar mídias restantes se a ordem foi modificada
+    if (editableAssets.value.length > 1) {
+      saveStatusMessage.value = "Atualizando ordem das imagens...";
+      const mediaIds = editableAssets.value.map((a) => a.mediaId);
+      const reorderResponse = await apiFetch(
+        `/media/posts/${postId}/assets/order`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getToken()}`,
+          },
+          body: JSON.stringify({ mediaIds }),
+        }
+      );
+
+      if (!reorderResponse.ok) await throwApiError(reorderResponse);
+    }
+
+    // 5. Enviar novas imagens adicionadas
+    if (editNewFiles.value.length > 0) {
+      const currentCount = editableAssets.value.length;
+      for (let i = 0; i < editNewFiles.value.length; i++) {
+        const file = editNewFiles.value[i];
+        saveStatusMessage.value = `Enviando nova imagem ${i + 1} de ${editNewFiles.value.length}...`;
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sequenceOrder", (currentCount + i + 1).toString());
+
+        const addResponse = await apiFetch(`/media/posts/${postId}/assets`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${getToken()}`,
+          },
+          body: formData,
+        });
+
+        if (!addResponse.ok) await throwApiError(addResponse);
+      }
+    }
+
+    // 6. Vincular à Campanha (se selecionada)
+    if (editSelectedCampaignKey.value) {
+      const [teamId, campaignId] = editSelectedCampaignKey.value.split("|");
+      if (teamId && campaignId) {
+        saveStatusMessage.value = "Vinculando postagem à campanha...";
+        const campaignLinkResponse = await apiFetch(
+          `/workflow/teams/${teamId}/campaigns/${campaignId}/posts`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${getToken()}`,
+            },
+            body: JSON.stringify({ postId: postId }),
+          }
+        );
+
+        // 409 Conflict significa que a postagem já estava vinculada a essa campanha
+        if (!campaignLinkResponse.ok && campaignLinkResponse.status !== 409) {
+          await throwApiError(campaignLinkResponse);
+        }
+      }
+    }
+
+    isEditPostDialogOpen.value = false;
+    showSuccess("Postagem e imagens atualizadas com sucesso!", "Postagem Atualizada");
+    await fetchPosts();
+  } catch (error: any) {
+    showError(error.message || "Falha na comunicação com o servidor.");
+  } finally {
+    isSavingEdit.value = false;
+    saveStatusMessage.value = "";
   }
 };
 
@@ -463,18 +772,20 @@ onMounted(() => {
                   <TableHead>Legenda</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Data de Criação</TableHead>
-                  <TableHead class="text-right">Anexos</TableHead>
+                  <TableHead class="text-center">Anexos</TableHead>
+                  <TableHead class="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow v-if="posts.length === 0">
-                  <TableCell colspan="4" class="text-center text-gray-500 py-8">
+                  <TableCell colspan="5" class="text-center text-gray-500 py-8">
                     Nenhuma postagem encontrada.
                   </TableCell>
                 </TableRow>
                 <TableRow v-for="post in posts" :key="post.id">
                   <TableCell
                     class="font-medium text-gray-900 max-w-xs truncate"
+                    :title="post.caption"
                   >
                     {{ post.caption || "Sem legenda" }}
                   </TableCell>
@@ -491,16 +802,32 @@ onMounted(() => {
                   <TableCell class="text-gray-500 text-sm">
                     {{ formatDate(post.createdAt) }}
                   </TableCell>
-                  <TableCell class="text-right">
+                  <TableCell class="text-center">
                     <button
                       v-if="post.assets && post.assets.length > 0"
                       @click="viewAssets(post.assets)"
                       class="inline-flex items-center text-sm text-vibrant-green hover:bg-soft-green/30 px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-vibrant-green/20"
+                      title="Visualizar anexos"
                     >
                       <Paperclip class="w-4 h-4 mr-1.5" />
                       {{ post.assets.length }}
                     </button>
                     <span v-else class="text-gray-400 text-sm mr-4">-</span>
+                  </TableCell>
+                  <TableCell class="text-right">
+                    <button
+                      type="button"
+                      @click="openEditPostModal(post)"
+                      :disabled="post.status?.toLowerCase() === 'published'"
+                      class="inline-flex items-center p-2 text-gray-600 hover:text-vibrant-green hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      :title="
+                        post.status?.toLowerCase() === 'published'
+                          ? 'Postagens já publicadas não podem ser editadas'
+                          : 'Editar Postagem'
+                      "
+                    >
+                      <Pencil class="w-4 h-4" />
+                    </button>
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -675,6 +1002,282 @@ onMounted(() => {
       </DialogContent>
     </Dialog>
 
+    <!-- Modal de Edição de Postagem -->
+    <Dialog v-model:open="isEditPostDialogOpen">
+      <DialogContent class="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle class="text-gray-900 flex items-center gap-2">
+            <Pencil class="w-5 h-5 text-vibrant-green" />
+            Editar Postagem
+          </DialogTitle>
+          <DialogDescription>
+            Altere a legenda, vincule a uma campanha e gerencie as fotos da publicação.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form @submit.prevent="handleSavePostEdit" class="space-y-5 mt-2">
+          <!-- Vincular à Campanha -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+              Vincular à Campanha (Opcional)
+            </label>
+            <div class="relative">
+              <Building2 class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
+              <select
+                v-model="editSelectedCampaignKey"
+                class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all text-gray-900 bg-white"
+                :disabled="isSavingEdit || isFetchingCampaigns"
+              >
+                <option value="">Não alterar vínculo de campanha</option>
+                <option
+                  v-for="camp in availableCampaigns"
+                  :key="camp.campaignId"
+                  :value="`${camp.teamId}|${camp.campaignId}`"
+                >
+                  {{ camp.name }} (Time: {{ camp.teamName }})
+                </option>
+              </select>
+            </div>
+            <div
+              v-if="!isFetchingCampaigns && availableCampaigns.length === 0"
+              class="mt-2 text-xs text-gray-500 flex items-center justify-between"
+            >
+              <span>Nenhuma campanha cadastrada nos seus times.</span>
+              <router-link
+                to="/campaigns"
+                class="text-vibrant-green hover:underline font-medium ml-2"
+              >
+                Criar Campanha
+              </router-link>
+            </div>
+            <p class="text-xs text-gray-500 mt-1.5">
+              Vincular a uma campanha permite que o post fique disponível na tela de Publicações para agendamento no Instagram.
+            </p>
+          </div>
+
+          <!-- Legenda -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+              Legenda da Publicação *
+            </label>
+            <textarea
+              v-model="editCaption"
+              rows="4"
+              placeholder="Edite o conteúdo da postagem..."
+              class="w-full p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all resize-none text-gray-900"
+              :disabled="isSavingEdit"
+              required
+            ></textarea>
+          </div>
+
+          <!-- Mídias Atuais -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium text-gray-700">
+                Imagens Atuais ({{ editableAssets.length }})
+              </label>
+              <span class="text-xs text-gray-500">
+                Reordene, substitua ou remova imagens existentes
+              </span>
+            </div>
+
+            <div
+              v-if="editableAssets.length === 0"
+              class="p-4 border border-dashed border-gray-300 rounded-lg text-center text-sm text-gray-500"
+            >
+              Nenhuma imagem associada a esta postagem.
+            </div>
+
+            <div
+              v-else
+              class="space-y-2 max-h-56 overflow-y-auto pr-1"
+            >
+              <div
+                v-for="(asset, index) in editableAssets"
+                :key="asset.mediaId"
+                class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100/60 transition-colors"
+              >
+                <div class="flex items-center truncate space-x-3 mr-2">
+                  <span
+                    class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-soft-green/40 text-vibrant-green text-xs font-bold flex-shrink-0"
+                  >
+                    {{ asset.sequenceOrder }}º
+                  </span>
+                  <FileText class="w-4 h-4 text-gray-500 flex-shrink-0" />
+                  <span
+                    class="text-sm text-gray-800 truncate font-medium"
+                    :class="{ 'text-emerald-700 font-semibold': asset.replacementFile }"
+                    :title="asset.fileName"
+                  >
+                    {{ asset.fileName }}
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  <!-- Mover para cima -->
+                  <button
+                    type="button"
+                    @click="moveAssetOrder(index, 'up')"
+                    :disabled="index === 0 || isSavingEdit"
+                    class="p-1.5 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Mover para cima"
+                  >
+                    <ArrowUp class="w-4 h-4" />
+                  </button>
+
+                  <!-- Mover para baixo -->
+                  <button
+                    type="button"
+                    @click="moveAssetOrder(index, 'down')"
+                    :disabled="index === editableAssets.length - 1 || isSavingEdit"
+                    class="p-1.5 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Mover para baixo"
+                  >
+                    <ArrowDown class="w-4 h-4" />
+                  </button>
+
+                  <!-- Substituir imagem -->
+                  <label
+                    :for="`replace-file-${asset.mediaId}`"
+                    class="p-1.5 text-gray-400 hover:text-vibrant-green cursor-pointer transition-colors"
+                    title="Substituir arquivo desta imagem"
+                  >
+                    <RefreshCw class="w-4 h-4" />
+                  </label>
+                  <input
+                    type="file"
+                    :id="`replace-file-${asset.mediaId}`"
+                    accept=".jpg,.jpeg,image/jpeg"
+                    class="hidden"
+                    :disabled="isSavingEdit"
+                    @change="triggerReplaceAsset(index, $event)"
+                  />
+
+                  <!-- Remover imagem -->
+                  <button
+                    type="button"
+                    @click="removeAssetFromEdit(index)"
+                    :disabled="isSavingEdit"
+                    class="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                    title="Remover imagem"
+                  >
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Adicionar Novas Imagens -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium text-gray-700">
+                Adicionar Novas Imagens
+              </label>
+              <span class="text-xs text-gray-500">
+                JPEG (.jpg, .jpeg) de até 8 MB
+              </span>
+            </div>
+
+            <div
+              class="border-2 border-dashed border-gray-300 rounded-lg p-5 text-center hover:bg-gray-50 transition-colors"
+            >
+              <input
+                type="file"
+                id="edit-modal-file-upload"
+                multiple
+                accept=".jpg,.jpeg,image/jpeg"
+                class="hidden"
+                @change="handleEditNewFileChange"
+                :disabled="isSavingEdit"
+              />
+              <label
+                for="edit-modal-file-upload"
+                class="cursor-pointer flex flex-col items-center"
+              >
+                <div class="p-2.5 bg-soft-green/30 rounded-full mb-2">
+                  <ImagePlus class="w-5 h-5 text-vibrant-green" />
+                </div>
+                <span class="text-sm font-medium text-gray-900">
+                  Clique para adicionar mais fotos
+                </span>
+                <span class="text-xs text-gray-500 mt-0.5">
+                  Serão adicionadas ao final da publicação
+                </span>
+              </label>
+            </div>
+
+            <!-- Lista de novas imagens a adicionar -->
+            <div
+              v-if="editNewFiles.length > 0"
+              class="mt-3 space-y-2 max-h-40 overflow-y-auto pr-1"
+            >
+              <div
+                v-for="(file, index) in editNewFiles"
+                :key="index"
+                class="flex items-center justify-between p-2.5 bg-emerald-50/60 border border-emerald-200/80 rounded-lg"
+              >
+                <div class="flex items-center truncate space-x-2.5">
+                  <span
+                    class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-200 text-emerald-800 text-xs font-bold flex-shrink-0"
+                  >
+                    +{{ editableAssets.length + index + 1 }}º
+                  </span>
+                  <ImagePlus class="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span class="text-sm text-gray-800 truncate font-medium">
+                    {{ file.name }}
+                  </span>
+                  <span class="text-xs text-gray-500 flex-shrink-0">
+                    ({{ formatFileSize(file.size) }})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  @click="removeEditNewFile(index)"
+                  :disabled="isSavingEdit"
+                  class="text-gray-400 hover:text-red-500 transition-colors p-1"
+                  title="Remover nova foto"
+                >
+                  <X class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Rodapé do Modal -->
+          <div
+            class="flex items-center justify-between pt-4 border-t border-gray-100"
+          >
+            <span class="text-sm font-medium text-vibrant-green animate-pulse">
+              {{ isSavingEdit ? saveStatusMessage : "" }}
+            </span>
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                @click="isEditPostDialogOpen = false"
+                :disabled="isSavingEdit"
+                class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors border border-gray-200 rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                :disabled="isSavingEdit || !editCaption.trim()"
+                class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2 px-6 rounded-lg transition-all disabled:opacity-50 text-sm"
+              >
+                <Loader2
+                  v-if="isSavingEdit"
+                  class="w-4 h-4 mr-2 animate-spin"
+                />
+                <Save v-else class="w-4 h-4 mr-2" />
+                Salvar Alterações
+              </button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+
     <!-- Modal de Visualização de Anexos -->
     <Dialog v-model:open="isAssetsDialogOpen">
       <DialogContent class="sm:max-w-md">
@@ -741,9 +1344,9 @@ onMounted(() => {
     <Dialog v-model:open="isSuccessDialogOpen">
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle class="text-vibrant-green">Postagem Criada!</DialogTitle>
+          <DialogTitle class="text-vibrant-green">{{ successTitle }}</DialogTitle>
           <DialogDescription>
-            Sua postagem e imagens foram salvas com sucesso.
+            {{ successMessage }}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
