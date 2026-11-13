@@ -54,8 +54,15 @@ const handleLogin = async () => {
     });
 
     if (!response.ok) {
-      const apiMessage = await response.text();
-      throw new Error(JSON.parse(apiMessage).detail);
+      const rawText = await response.text();
+      let errorDetail = "Falha ao realizar login. Verifique suas credenciais.";
+      try {
+        const parsed = JSON.parse(rawText);
+        errorDetail = parsed.detail || parsed.message || parsed.title || errorDetail;
+      } catch {
+        errorDetail = rawText || errorDetail;
+      }
+      throw new Error(errorDetail);
     }
 
     const data = await response.json();
@@ -91,8 +98,15 @@ const handleResetPassword = async () => {
     });
 
     if (!response.ok) {
-      const apiMessage = await response.text();
-      throw new Error(JSON.parse(apiMessage).detail);
+      const rawText = await response.text();
+      let errorDetail = "Falha ao enviar e-mail de recuperação.";
+      try {
+        const parsed = JSON.parse(rawText);
+        errorDetail = parsed.detail || parsed.message || parsed.title || errorDetail;
+      } catch {
+        errorDetail = rawText || errorDetail;
+      }
+      throw new Error(errorDetail);
     }
 
     successMessage.value =
