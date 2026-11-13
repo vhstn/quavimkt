@@ -232,9 +232,20 @@ const getPostCreatedAt = (postId: string) => {
 };
 
 const filteredCampaignPosts = computed(() => {
-  if (!postSearchQuery.value.trim()) return campaignPosts.value;
+  let list = [...campaignPosts.value];
+
+  // Ordena do mais recente para o mais antigo (com base em createdAt)
+  list.sort((a, b) => {
+    const postA = userPostsMap.value.get(a.postId.toLowerCase());
+    const postB = userPostsMap.value.get(b.postId.toLowerCase());
+    const timeA = postA?.createdAt ? new Date(postA.createdAt).getTime() : 0;
+    const timeB = postB?.createdAt ? new Date(postB.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  if (!postSearchQuery.value.trim()) return list;
   const q = postSearchQuery.value.toLowerCase().trim();
-  return campaignPosts.value.filter(
+  return list.filter(
     (p) =>
       (p.caption && p.caption.toLowerCase().includes(q)) ||
       p.postId.toLowerCase().includes(q)

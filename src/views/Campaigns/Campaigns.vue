@@ -10,6 +10,7 @@ import {
   FileText,
   Image as ImageIcon,
   Layers,
+  Clock,
   FolderOpen,
 } from "lucide-vue-next";
 import {
@@ -135,6 +136,28 @@ const getPostAssetsCount = (postId: string) => {
   if (!postId) return 0;
   const userPost = userPostsMap.value.get(postId.toLowerCase());
   return userPost?.assets?.length || 0;
+};
+
+const formatDate = (dateStr?: string) => {
+  if (!dateStr) return "-";
+  try {
+    const date = new Date(dateStr);
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  } catch {
+    return dateStr;
+  }
+};
+
+const getPostCreatedAt = (postId: string) => {
+  if (!postId) return "";
+  const userPost = userPostsMap.value.get(postId.toLowerCase());
+  return userPost?.createdAt ? formatDate(userPost.createdAt) : "";
 };
 
 const formatStatus = (status?: string) => {
@@ -310,7 +333,14 @@ const viewCampaignPosts = async (campaign: TeamCampaign) => {
     if (!campaignPostsResponse.ok) throw new Error("Erro ao buscar postagens da campanha.");
 
     const data = await campaignPostsResponse.json();
-    campaignPosts.value = data.posts || [];
+    const rawPosts: CampaignPost[] = data.posts || [];
+    campaignPosts.value = rawPosts.sort((a, b) => {
+      const postA = userPostsMap.value.get(a.postId.toLowerCase());
+      const postB = userPostsMap.value.get(b.postId.toLowerCase());
+      const timeA = postA?.createdAt ? new Date(postA.createdAt).getTime() : 0;
+      const timeB = postB?.createdAt ? new Date(postB.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
   } catch (error: any) {
     showError(error.message || "Não foi possível carregar as postagens da campanha.");
   } finally {
@@ -642,6 +672,11 @@ onMounted(() => {
                     <p class="text-xs text-gray-800 whitespace-pre-line line-clamp-2 leading-relaxed">
                       {{ post.caption || "Postagem sem legenda." }}
                     </p>
+
+                    <div v-if="getPostCreatedAt(post.postId)" class="flex items-center gap-1 text-[10px] text-gray-400 mt-1.5 pt-1 border-t border-gray-100">
+                      <Clock class="w-3 h-3 text-gray-400" />
+                      <span>Criado em: {{ getPostCreatedAt(post.postId) }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
