@@ -8,6 +8,9 @@ import {
   Plus,
   Loader2,
   FileText,
+  Image as ImageIcon,
+  Layers,
+  FolderOpen,
 } from "lucide-vue-next";
 import {
   Dialog,
@@ -51,6 +54,22 @@ interface CampaignPost {
   status?: string;
 }
 
+interface UserPostAsset {
+  media?: {
+    id: string;
+    fileName: string;
+  };
+  sequenceOrder?: number;
+}
+
+interface UserPostInfo {
+  id: string;
+  caption: string;
+  createdAt: string;
+  status: string;
+  assets: UserPostAsset[];
+}
+
 // ==========================================
 // ESTADO: Listagem e Seleção
 // ==========================================
@@ -75,6 +94,84 @@ const isPostsDialogOpen = ref(false);
 const selectedCampaign = ref<TeamCampaign | null>(null);
 const campaignPosts = ref<CampaignPost[]>([]);
 const isFetchingPosts = ref(false);
+const userPostsMap = ref<Map<string, UserPostInfo>>(new Map());
+const isUserPostsLoaded = ref(false);
+
+const getMediaPublicUrl = (mediaId?: string) => {
+  if (!mediaId) return "";
+  return `${import.meta.env.VITE_RENDER_API_URL}/media/public/${mediaId}`;
+};
+
+const fetchUserPosts = async () => {
+  if (isUserPostsLoaded.value) return;
+  try {
+    const response = await apiFetch("/identity/users/me/posts?pageSize=100");
+    if (response.ok) {
+      const data = await response.json();
+      const list: UserPostInfo[] = data.items || data.posts || (Array.isArray(data) ? data : []);
+      const map = new Map<string, UserPostInfo>();
+      list.forEach((p) => {
+        if (p.id) map.set(p.id.toLowerCase(), p);
+      });
+      userPostsMap.value = map;
+      isUserPostsLoaded.value = true;
+    }
+  } catch (e) {
+    console.warn("Não foi possível carregar enriquecimento de postagens", e);
+  }
+};
+
+const getPostThumbnail = (postId: string) => {
+  if (!postId) return "";
+  const userPost = userPostsMap.value.get(postId.toLowerCase());
+  const firstAsset = userPost?.assets?.[0];
+  if (firstAsset?.media?.id) {
+    return getMediaPublicUrl(firstAsset.media.id);
+  }
+  return "";
+};
+
+const getPostAssetsCount = (postId: string) => {
+  if (!postId) return 0;
+  const userPost = userPostsMap.value.get(postId.toLowerCase());
+  return userPost?.assets?.length || 0;
+};
+
+const formatStatus = (status?: string) => {
+  if (!status) return "Criado";
+  const normalized = status.toLowerCase();
+  switch (normalized) {
+    case "created":
+      return "Criado";
+    case "scheduled":
+      return "Agendado";
+    case "published":
+      return "Publicado";
+    case "cancelled":
+    case "canceled":
+      return "Cancelado";
+    default:
+      return status;
+  }
+};
+
+const getStatusBadgeClasses = (status?: string) => {
+  if (!status) return "bg-gray-100 text-gray-700 border-gray-200";
+  const normalized = status.toLowerCase();
+  switch (normalized) {
+    case "created":
+      return "bg-gray-100 text-gray-700 border-gray-200";
+    case "scheduled":
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    case "published":
+      return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    case "cancelled":
+    case "canceled":
+      return "bg-red-100 text-red-800 border-red-200";
+    default:
+      return "bg-gray-100 text-gray-700 border-gray-200";
+  }
+};
 
 // ==========================================
 // ESTADO: Diálogos de Feedback
@@ -203,13 +300,16 @@ const viewCampaignPosts = async (campaign: TeamCampaign) => {
   isFetchingPosts.value = true;
 
   try {
-    const response = await apiFetch(
-      `/workflow/teams/${selectedTeamId.value}/campaigns/${campaign.campaignId}/posts`
-    );
+    const [campaignPostsResponse] = await Promise.all([
+      apiFetch(
+        `/workflow/teams/${selectedTeamId.value}/campaigns/${campaign.campaignId}/posts`
+      ),
+      fetchUserPosts(),
+    ]);
 
-    if (!response.ok) throw new Error("Erro ao buscar postagens da campanha.");
+    if (!campaignPostsResponse.ok) throw new Error("Erro ao buscar postagens da campanha.");
 
-    const data = await response.json();
+    const data = await campaignPostsResponse.json();
     campaignPosts.value = data.posts || [];
   } catch (error: any) {
     showError(error.message || "Não foi possível carregar as postagens da campanha.");
@@ -451,43 +551,98 @@ onMounted(() => {
 
         <!-- Modal de Postagens da Campanha -->
         <Dialog v-model:open="isPostsDialogOpen">
-          <DialogContent class="sm:max-w-md">
+          <DialogContent class="sm:max-w-xl">
             <DialogHeader>
-              <DialogTitle class="text-gray-900 flex items-center">
-                <FileText class="w-5 h-5 mr-2 text-vibrant-green" />
-                Postagens da Campanha
-              </DialogTitle>
+              <div class="flex items-center justify-between pr-4">
+                <DialogTitle class="text-gray-900 flex items-center text-base">
+                  <FileText class="w-5 h-5 mr-2 text-vibrant-green" />
+                  Postagens da Campanha
+                </DialogTitle>
+                <span
+                  v-if="!isFetchingPosts && campaignPosts.length > 0"
+                  class="text-xs px-2.5 py-0.5 rounded-full bg-soft-green/30 text-vibrant-green font-semibold"
+                >
+                  {{ campaignPosts.length }} {{ campaignPosts.length === 1 ? 'postagem' : 'postagens' }}
+                </span>
+              </div>
               <DialogDescription>
-                Publicações vinculadas à campanha "{{ selectedCampaign?.name }}".
+                Postagens vinculadas à campanha "{{ selectedCampaign?.name }}".
               </DialogDescription>
             </DialogHeader>
 
             <div class="mt-4">
-              <div v-if="isFetchingPosts" class="flex justify-center p-6">
-                <Loader2 class="w-6 h-6 text-vibrant-green animate-spin" />
+              <div v-if="isFetchingPosts" class="flex flex-col items-center justify-center p-8 text-gray-500">
+                <Loader2 class="w-7 h-7 text-vibrant-green animate-spin mb-2" />
+                <span class="text-xs">Carregando postagens...</span>
               </div>
 
               <div
                 v-else-if="campaignPosts.length === 0"
-                class="text-center py-6 text-gray-500 text-sm"
+                class="text-center py-8 px-4 bg-gray-50 border border-dashed border-gray-200 rounded-xl"
               >
-                Nenhuma postagem vinculada a esta campanha no momento.
+                <FolderOpen class="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                <p class="text-sm font-medium text-gray-700">Nenhuma postagem vinculada</p>
+                <p class="text-xs text-gray-500 mt-1 max-w-xs mx-auto">
+                  Crie postagens associadas a esta campanha para que apareçam aqui.
+                </p>
               </div>
 
-              <div v-else class="space-y-2 max-h-60 overflow-y-auto pr-1">
+              <div v-else class="space-y-3 max-h-96 overflow-y-auto pr-1">
                 <div
                   v-for="post in campaignPosts"
                   :key="post.postId"
-                  class="p-3 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between"
+                  class="p-3.5 bg-white border border-gray-200 hover:border-gray-300 rounded-xl shadow-xs transition-all flex items-start gap-3.5"
                 >
-                  <span class="text-sm font-medium text-gray-800 truncate mr-2">
-                    {{ post.caption || "Postagem sem legenda" }}
-                  </span>
-                  <span
-                    class="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 rounded-full font-medium flex-shrink-0"
+                  <!-- Miniatura da Imagem -->
+                  <div
+                    v-if="getPostThumbnail(post.postId)"
+                    class="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-100 flex-shrink-0 bg-gray-100 shadow-xs"
                   >
-                    {{ post.status || "Vinculado" }}
-                  </span>
+                    <img
+                      :src="getPostThumbnail(post.postId)"
+                      alt="Miniatura da postagem"
+                      class="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div
+                    v-else
+                    class="w-16 h-16 rounded-lg bg-gray-100 border border-gray-200 flex flex-col items-center justify-center text-gray-400 flex-shrink-0"
+                    title="Sem imagem pré-carregada"
+                  >
+                    <ImageIcon class="w-6 h-6 text-gray-400"
+                    />
+                    <span class="text-[9px] text-gray-400 mt-0.5">Sem foto</span>
+                  </div>
+
+                  <!-- Conteúdo / Legenda e Badges -->
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap mb-1">
+                      <span
+                        :class="[
+                          'px-2 py-0.5 text-xs rounded-full font-medium border',
+                          getStatusBadgeClasses(post.status),
+                        ]"
+                      >
+                        {{ formatStatus(post.status) }}
+                      </span>
+
+                      <span
+                        v-if="getPostAssetsCount(post.postId) > 0"
+                        class="inline-flex items-center text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-200"
+                      >
+                        <Layers class="w-3 h-3 mr-1 text-gray-400" />
+                        {{ getPostAssetsCount(post.postId) }} {{ getPostAssetsCount(post.postId) === 1 ? 'mídia' : 'mídias' }}
+                      </span>
+
+                      <span class="text-[11px] font-mono text-gray-400 ml-auto">
+                        #{{ post.postId.slice(0, 8) }}
+                      </span>
+                    </div>
+
+                    <p class="text-xs text-gray-800 whitespace-pre-line line-clamp-2 leading-relaxed">
+                      {{ post.caption || "Postagem sem legenda." }}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -495,7 +650,7 @@ onMounted(() => {
             <DialogFooter class="mt-4">
               <button
                 @click="isPostsDialogOpen = false"
-                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 py-2 rounded-lg font-medium transition-colors"
+                class="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 py-2 rounded-lg font-medium text-sm transition-colors"
               >
                 Fechar
               </button>

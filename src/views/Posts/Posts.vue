@@ -18,6 +18,7 @@ import {
   ArrowDown,
   RefreshCw,
   Save,
+  Eye,
 } from "lucide-vue-next";
 import {
   Dialog,
@@ -96,7 +97,6 @@ const statusMessage = ref("");
 const isEditPostDialogOpen = ref(false);
 const editingPost = ref<PostItem | null>(null);
 const editCaption = ref("");
-const editSelectedCampaignKey = ref("");
 const editableAssets = ref<EditableAsset[]>([]);
 const assetsToRemove = ref<string[]>([]);
 const editNewFiles = ref<File[]>([]);
@@ -112,6 +112,33 @@ const isFetching = ref(true);
 const isAssetsDialogOpen = ref(false);
 const selectedAssets = ref<PostAsset[]>([]);
 const isDownloading = ref<Record<string, boolean>>({});
+
+// ==========================================
+// ESTADO: Prévia Ampliada de Imagens (Lightbox)
+// ==========================================
+const isPreviewDialogOpen = ref(false);
+const previewImageUrl = ref("");
+const previewImageTitle = ref("");
+
+const openImagePreview = (url: string, title = "Visualização da Imagem") => {
+  if (!url) return;
+  previewImageUrl.value = url;
+  previewImageTitle.value = title;
+  isPreviewDialogOpen.value = true;
+};
+
+const getMediaPublicUrl = (mediaId?: string) => {
+  if (!mediaId) return "";
+  return `${import.meta.env.VITE_RENDER_API_URL}/media/public/${mediaId}`;
+};
+
+const getFilePreviewUrl = (file: File) => {
+  try {
+    return URL.createObjectURL(file);
+  } catch {
+    return "";
+  }
+};
 
 // ==========================================
 // ESTADO: Modais de Feedback
@@ -357,6 +384,11 @@ const removeFile = (index: number) => {
 };
 
 const handleSubmit = async () => {
+  if (!selectedCampaignKey.value) {
+    showError("É obrigatório vincular a postagem a uma campanha.");
+    return;
+  }
+
   if (!caption.value.trim()) {
     showError("A legenda da postagem é obrigatória.");
     return;
@@ -445,8 +477,6 @@ const handleSubmit = async () => {
 const openEditPostModal = (post: PostItem) => {
   editingPost.value = post;
   editCaption.value = post.caption || "";
-  editSelectedCampaignKey.value = "";
-  fetchUserCampaigns();
 
   // Clona assets garantindo ordenação sequencial
   editableAssets.value = (post.assets || [])
@@ -676,30 +706,6 @@ const handleSavePostEdit = async () => {
       }
     }
 
-    // 6. Vincular à Campanha (se selecionada)
-    if (editSelectedCampaignKey.value) {
-      const [teamId, campaignId] = editSelectedCampaignKey.value.split("|");
-      if (teamId && campaignId) {
-        saveStatusMessage.value = "Vinculando postagem à campanha...";
-        const campaignLinkResponse = await apiFetch(
-          `/workflow/teams/${teamId}/campaigns/${campaignId}/posts`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${getToken()}`,
-            },
-            body: JSON.stringify({ postId: postId }),
-          }
-        );
-
-        // 409 Conflict significa que a postagem já estava vinculada a essa campanha
-        if (!campaignLinkResponse.ok && campaignLinkResponse.status !== 409) {
-          await throwApiError(campaignLinkResponse);
-        }
-      }
-    }
-
     isEditPostDialogOpen.value = false;
     showSuccess("Postagem e imagens atualizadas com sucesso!", "Postagem Atualizada");
     await fetchPosts();
@@ -806,13 +812,24 @@ onMounted(() => {
                     <button
                       v-if="post.assets && post.assets.length > 0"
                       @click="viewAssets(post.assets)"
-                      class="inline-flex items-center text-sm text-vibrant-green hover:bg-soft-green/30 px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-vibrant-green/20"
-                      title="Visualizar anexos"
+                      class="inline-flex items-center gap-2 group text-sm text-gray-700 hover:text-vibrant-green hover:bg-soft-green/20 px-2.5 py-1.5 rounded-lg transition-all border border-gray-100 hover:border-vibrant-green/30"
+                      title="Visualizar fotos da publicação"
                     >
-                      <Paperclip class="w-4 h-4 mr-1.5" />
-                      {{ post.assets.length }}
+                      <!-- Miniatura da primeira imagem -->
+                      <div class="relative w-7 h-7 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+                        <img
+                          :src="getMediaPublicUrl(post.assets[0].media?.id)"
+                          :alt="post.assets[0].media?.fileName || 'Foto'"
+                          class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200"
+                          loading="lazy"
+                        />
+                      </div>
+                      <span class="inline-flex items-center text-xs font-semibold text-gray-600 group-hover:text-vibrant-green">
+                        <Paperclip class="w-3.5 h-3.5 mr-1 text-gray-400 group-hover:text-vibrant-green" />
+                        {{ post.assets.length }}
+                      </span>
                     </button>
-                    <span v-else class="text-gray-400 text-sm mr-4">-</span>
+                    <span v-else class="text-gray-400 text-sm">-</span>
                   </TableCell>
                   <TableCell class="text-right">
                     <button
@@ -850,16 +867,17 @@ onMounted(() => {
         <form @submit.prevent="handleSubmit" class="space-y-5 mt-2">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">
-              Vincular à Campanha (Opcional)
+              Vincular à Campanha *
             </label>
             <div class="relative">
               <Building2 class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
               <select
                 v-model="selectedCampaignKey"
                 class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all text-gray-900 bg-white"
-                :disabled="isSubmitting || isFetchingCampaigns"
+                :disabled="isSubmitting || isFetchingCampaigns || availableCampaigns.length === 0"
+                required
               >
-                <option value="">Nenhuma campanha</option>
+                <option value="" disabled>Selecione uma campanha *</option>
                 <option
                   v-for="camp in availableCampaigns"
                   :key="camp.campaignId"
@@ -871,12 +889,12 @@ onMounted(() => {
             </div>
             <div
               v-if="!isFetchingCampaigns && availableCampaigns.length === 0"
-              class="mt-2 text-xs text-gray-500 flex items-center justify-between"
+              class="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center justify-between"
             >
-              <span>Nenhuma campanha cadastrada. A postagem será criada como avulsa.</span>
+              <span>É necessário ter pelo menos uma campanha cadastrada para criar postagens.</span>
               <router-link
                 to="/campaigns"
-                class="text-vibrant-green hover:underline font-medium ml-2"
+                class="font-semibold text-amber-900 underline ml-2 hover:text-black flex-shrink-0"
               >
                 Criar Campanha
               </router-link>
@@ -935,12 +953,12 @@ onMounted(() => {
 
             <div
               v-if="selectedFiles.length > 0"
-              class="mt-4 space-y-2 max-h-52 overflow-y-auto pr-2"
+              class="mt-4 space-y-2 max-h-56 overflow-y-auto pr-2"
             >
               <div
                 v-for="(file, index) in selectedFiles"
                 :key="index"
-                class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100/50 transition-colors"
+                class="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100/50 transition-colors"
               >
                 <div class="flex items-center truncate space-x-3">
                   <span
@@ -948,13 +966,31 @@ onMounted(() => {
                   >
                     {{ index + 1 }}º
                   </span>
-                  <ImagePlus class="w-4 h-4 text-gray-500 flex-shrink-0" />
-                  <span class="text-sm text-gray-700 truncate font-medium">
-                    {{ file.name }}
-                  </span>
-                  <span class="text-xs text-gray-400 flex-shrink-0">
-                    ({{ formatFileSize(file.size) }})
-                  </span>
+
+                  <!-- Prévia da miniatura local -->
+                  <div
+                    class="relative w-12 h-12 rounded-lg overflow-hidden bg-gray-200 border border-gray-200 flex-shrink-0 cursor-pointer group"
+                    @click="openImagePreview(getFilePreviewUrl(file), file.name)"
+                    title="Clique para ampliar"
+                  >
+                    <img
+                      :src="getFilePreviewUrl(file)"
+                      :alt="file.name"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
+                    <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                      <Eye class="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+
+                  <div class="truncate">
+                    <p class="text-sm text-gray-800 truncate font-medium">
+                      {{ file.name }}
+                    </p>
+                    <span class="text-xs text-gray-400">
+                      {{ formatFileSize(file.size) }}
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -986,7 +1022,7 @@ onMounted(() => {
               </button>
               <button
                 type="submit"
-                :disabled="isSubmitting || !caption"
+                :disabled="isSubmitting || !caption.trim() || !selectedCampaignKey || availableCampaigns.length === 0"
                 class="flex items-center bg-vibrant-green hover:bg-vibrant-green/90 text-white font-medium py-2 px-6 rounded-lg transition-all disabled:opacity-50 text-sm"
               >
                 <Loader2
@@ -1011,50 +1047,11 @@ onMounted(() => {
             Editar Postagem
           </DialogTitle>
           <DialogDescription>
-            Altere a legenda, vincule a uma campanha e gerencie as fotos da publicação.
+            Altere a legenda e gerencie as fotos da publicação.
           </DialogDescription>
         </DialogHeader>
 
         <form @submit.prevent="handleSavePostEdit" class="space-y-5 mt-2">
-          <!-- Vincular à Campanha -->
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">
-              Vincular à Campanha (Opcional)
-            </label>
-            <div class="relative">
-              <Building2 class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
-              <select
-                v-model="editSelectedCampaignKey"
-                class="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-vibrant-green focus:border-transparent outline-none transition-all text-gray-900 bg-white"
-                :disabled="isSavingEdit || isFetchingCampaigns"
-              >
-                <option value="">Não alterar vínculo de campanha</option>
-                <option
-                  v-for="camp in availableCampaigns"
-                  :key="camp.campaignId"
-                  :value="`${camp.teamId}|${camp.campaignId}`"
-                >
-                  {{ camp.name }} (Time: {{ camp.teamName }})
-                </option>
-              </select>
-            </div>
-            <div
-              v-if="!isFetchingCampaigns && availableCampaigns.length === 0"
-              class="mt-2 text-xs text-gray-500 flex items-center justify-between"
-            >
-              <span>Nenhuma campanha cadastrada nos seus times.</span>
-              <router-link
-                to="/campaigns"
-                class="text-vibrant-green hover:underline font-medium ml-2"
-              >
-                Criar Campanha
-              </router-link>
-            </div>
-            <p class="text-xs text-gray-500 mt-1.5">
-              Vincular a uma campanha permite que o post fique disponível na tela de Publicações para agendamento no Instagram.
-            </p>
-          </div>
-
           <!-- Legenda -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -1090,12 +1087,12 @@ onMounted(() => {
 
             <div
               v-else
-              class="space-y-2 max-h-56 overflow-y-auto pr-1"
+              class="space-y-2.5 max-h-60 overflow-y-auto pr-1"
             >
               <div
                 v-for="(asset, index) in editableAssets"
                 :key="asset.mediaId"
-                class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100/60 transition-colors"
+                class="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100/60 transition-colors"
               >
                 <div class="flex items-center truncate space-x-3 mr-2">
                   <span
@@ -1103,14 +1100,36 @@ onMounted(() => {
                   >
                     {{ asset.sequenceOrder }}º
                   </span>
-                  <FileText class="w-4 h-4 text-gray-500 flex-shrink-0" />
-                  <span
-                    class="text-sm text-gray-800 truncate font-medium"
-                    :class="{ 'text-emerald-700 font-semibold': asset.replacementFile }"
-                    :title="asset.fileName"
+
+                  <!-- Prévia da miniatura (substituição ou servidor) -->
+                  <div
+                    class="relative w-12 h-12 rounded-lg overflow-hidden bg-gray-200 border border-gray-200 flex-shrink-0 cursor-pointer group"
+                    @click="openImagePreview(asset.replacementFile ? getFilePreviewUrl(asset.replacementFile) : getMediaPublicUrl(asset.mediaId), asset.fileName)"
+                    title="Clique para ampliar a imagem"
                   >
-                    {{ asset.fileName }}
-                  </span>
+                    <img
+                      :src="asset.replacementFile ? getFilePreviewUrl(asset.replacementFile) : getMediaPublicUrl(asset.mediaId)"
+                      :alt="asset.fileName"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      loading="lazy"
+                    />
+                    <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                      <Eye class="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+
+                  <div class="truncate">
+                    <p
+                      class="text-sm text-gray-800 truncate font-medium"
+                      :class="{ 'text-emerald-700 font-semibold': asset.replacementFile }"
+                      :title="asset.fileName"
+                    >
+                      {{ asset.fileName }}
+                    </p>
+                    <span v-if="asset.replacementFile" class="text-xs text-emerald-600 font-medium">
+                      Substituindo foto original
+                    </span>
+                  </div>
                 </div>
 
                 <div class="flex items-center gap-1 flex-shrink-0">
@@ -1223,13 +1242,31 @@ onMounted(() => {
                   >
                     +{{ editableAssets.length + index + 1 }}º
                   </span>
-                  <ImagePlus class="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  <span class="text-sm text-gray-800 truncate font-medium">
-                    {{ file.name }}
-                  </span>
-                  <span class="text-xs text-gray-500 flex-shrink-0">
-                    ({{ formatFileSize(file.size) }})
-                  </span>
+
+                  <!-- Prévia da miniatura local -->
+                  <div
+                    class="relative w-10 h-10 rounded-md overflow-hidden bg-gray-200 border border-gray-200 flex-shrink-0 cursor-pointer group"
+                    @click="openImagePreview(getFilePreviewUrl(file), file.name)"
+                    title="Clique para ampliar"
+                  >
+                    <img
+                      :src="getFilePreviewUrl(file)"
+                      :alt="file.name"
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
+                    <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                      <Eye class="w-3 h-3" />
+                    </div>
+                  </div>
+
+                  <div class="truncate">
+                    <p class="text-sm text-gray-800 truncate font-medium">
+                      {{ file.name }}
+                    </p>
+                    <span class="text-xs text-gray-500">
+                      ({{ formatFileSize(file.size) }})
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -1280,44 +1317,71 @@ onMounted(() => {
 
     <!-- Modal de Visualização de Anexos -->
     <Dialog v-model:open="isAssetsDialogOpen">
-      <DialogContent class="sm:max-w-md">
+      <DialogContent class="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle class="text-gray-900 flex items-center">
             <ImageIcon class="w-5 h-5 mr-2 text-vibrant-green" />
-            Anexos da Postagem
+            Anexos da Postagem ({{ selectedAssets.length }})
           </DialogTitle>
           <DialogDescription>
-            Arquivos vinculados a esta publicação.
+            Fotos vinculadas a esta publicação. Clique em qualquer foto para ampliar.
           </DialogDescription>
         </DialogHeader>
 
-        <div class="space-y-3 mt-4 max-h-72 overflow-y-auto pr-2">
+        <div class="space-y-3 mt-4 max-h-96 overflow-y-auto pr-2">
           <div
             v-for="asset in selectedAssets"
             :key="asset.media?.id || asset.id"
-            class="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg"
+            class="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100/60 transition-colors"
           >
-            <div class="flex items-center truncate mr-4 space-x-2">
+            <div class="flex items-center truncate mr-3 space-x-3">
               <span
                 v-if="asset.sequenceOrder"
-                class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-soft-green/30 text-vibrant-green text-xs font-semibold flex-shrink-0"
+                class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-soft-green/40 text-vibrant-green text-xs font-bold flex-shrink-0"
               >
                 {{ asset.sequenceOrder }}º
               </span>
-              <FileText class="w-4 h-4 text-gray-500 flex-shrink-0" />
-              <span
-                class="text-sm text-gray-700 truncate"
-                :title="asset.media?.fileName || 'Imagem'"
+
+              <!-- Miniatura com clique para ampliar -->
+              <div
+                class="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-200 border border-gray-200 flex-shrink-0 cursor-pointer group"
+                @click="openImagePreview(getMediaPublicUrl(asset.media?.id), asset.media?.fileName)"
+                title="Clique para ampliar"
               >
-                {{ asset.media?.fileName || "Imagem" }}
-              </span>
+                <img
+                  :src="getMediaPublicUrl(asset.media?.id)"
+                  :alt="asset.media?.fileName || 'Imagem'"
+                  class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  loading="lazy"
+                />
+                <div class="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                  <Eye class="w-4 h-4" />
+                </div>
+              </div>
+
+              <div class="truncate">
+                <p
+                  class="text-sm font-medium text-gray-900 truncate"
+                  :title="asset.media?.fileName || 'Imagem'"
+                >
+                  {{ asset.media?.fileName || "Imagem" }}
+                </p>
+                <button
+                  type="button"
+                  @click="openImagePreview(getMediaPublicUrl(asset.media?.id), asset.media?.fileName)"
+                  class="text-xs text-vibrant-green hover:underline flex items-center gap-1 mt-0.5"
+                >
+                  <Eye class="w-3 h-3" />
+                  Ver ampliada
+                </button>
+              </div>
             </div>
 
             <button
               v-if="asset.media?.id"
               @click="downloadAsset(asset.media.id, asset.media.fileName)"
               :disabled="isDownloading[asset.media.id]"
-              class="flex items-center justify-center text-gray-600 hover:text-vibrant-green transition-colors p-2 rounded hover:bg-gray-200 disabled:opacity-50"
+              class="flex items-center justify-center text-gray-600 hover:text-vibrant-green transition-colors p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 disabled:opacity-50 flex-shrink-0"
               title="Baixar Arquivo"
             >
               <Loader2
@@ -1332,7 +1396,39 @@ onMounted(() => {
         <DialogFooter class="mt-4">
           <button
             @click="isAssetsDialogOpen = false"
-            class="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 py-2 rounded-lg font-medium transition-colors"
+            class="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 py-2 rounded-lg font-medium transition-colors text-sm"
+          >
+            Fechar
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Modal de Prévia Ampliada da Imagem (Lightbox) -->
+    <Dialog v-model:open="isPreviewDialogOpen">
+      <DialogContent class="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle class="text-gray-900 truncate">
+            {{ previewImageTitle || "Visualização da Imagem" }}
+          </DialogTitle>
+          <DialogDescription>
+            Visualização ampliada do anexo da publicação.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="mt-2 flex items-center justify-center bg-gray-900/5 rounded-xl p-2 overflow-hidden border border-gray-200">
+          <img
+            :src="previewImageUrl"
+            :alt="previewImageTitle"
+            class="max-h-[65vh] max-w-full rounded-lg object-contain shadow-sm"
+          />
+        </div>
+
+        <DialogFooter class="mt-4">
+          <button
+            type="button"
+            @click="isPreviewDialogOpen = false"
+            class="w-full sm:w-auto px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-medium transition-colors text-sm"
           >
             Fechar
           </button>
