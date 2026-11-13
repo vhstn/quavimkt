@@ -17,6 +17,7 @@ import {
   Instagram,
   RefreshCw,
   AlertTriangle,
+  CheckCircle2,
   Info,
   Calendar,
   ExternalLink,
@@ -178,6 +179,16 @@ const isLoadingPublicationInsights = ref<boolean>(false);
 const isLoadingTeams = ref<boolean>(true);
 const isRefreshing = ref<boolean>(false);
 const errorMessage = ref<string>("");
+const successMessage = ref<string>("");
+let successTimeout: any = null;
+
+const showSuccessMessage = (msg: string) => {
+  successMessage.value = msg;
+  if (successTimeout) clearTimeout(successTimeout);
+  successTimeout = setTimeout(() => {
+    successMessage.value = "";
+  }, 6000);
+};
 
 // Hover no gráfico
 const hoveredDailyIndex = ref<number | null>(null);
@@ -547,13 +558,78 @@ const fetchPublicationInsights = async () => {
 };
 
 const handleRefresh = async () => {
+  if (!selectedTeamId.value) return;
+
+  if (!isInstagramConnected.value) {
+    errorMessage.value = "A equipe precisa ter uma conta do Instagram conectada para coletar métricas.";
+    return;
+  }
+
   isRefreshing.value = true;
+  errorMessage.value = "";
+  successMessage.value = "";
+
   try {
     if (activeTab.value === "campaign") {
+      // 1. Força a coleta de métricas de todas as publicações ativas do time via POST
+      const refreshResponse = await apiFetch(
+        `/teams/${selectedTeamId.value}/social/instagram/publications/insights/refresh`,
+        { method: "POST" }
+      );
+
+      if (!refreshResponse.ok) {
+        throw new Error(
+          await parseErrorMessage(refreshResponse, "Erro ao forçar coleta de métricas da equipe.")
+        );
+      }
+
+      const refreshResult = await refreshResponse.json();
+
+      // 2. Recarrega as métricas da campanha selecionada
       await fetchCampaignInsights();
+
+      // 3. Feedback informativo ao usuário
+      if (refreshResult.collected > 0) {
+        showSuccessMessage(
+          `Métricas atualizadas! ${refreshResult.collected} ${
+            refreshResult.collected === 1 ? "publicação atualizada" : "publicações atualizadas"
+          } diretamente da Meta.`
+        );
+      } else if (refreshResult.skipped > 0) {
+        showSuccessMessage(
+          `Métricas verificadas na Meta. ${refreshResult.skipped} ${
+            refreshResult.skipped === 1 ? "publicação já havia sido coletada" : "publicações já haviam sido coletadas"
+          } há menos de 1 minuto.`
+        );
+      } else {
+        showSuccessMessage("Métricas da campanha sincronizadas com sucesso.");
+      }
     } else {
-      await fetchPublicationInsights();
+      // Aba de publicação individual
+      if (!selectedPublicationId.value) {
+        errorMessage.value = "Selecione uma publicação para atualizar suas métricas.";
+        return;
+      }
+
+      // 1. Força a coleta de métricas da publicação individual via POST
+      const refreshResponse = await apiFetch(
+        `/teams/${selectedTeamId.value}/social/instagram/publications/${selectedPublicationId.value}/insights/refresh`,
+        { method: "POST" }
+      );
+
+      if (!refreshResponse.ok) {
+        throw new Error(
+          await parseErrorMessage(refreshResponse, "Erro ao forçar coleta de métricas da publicação.")
+        );
+      }
+
+      const data: PublicationInsightsResponse = await refreshResponse.json();
+      publicationInsights.value = data;
+
+      showSuccessMessage("Métricas da publicação atualizadas com sucesso diretamente da Meta!");
     }
+  } catch (err: any) {
+    errorMessage.value = err.message || "Falha ao atualizar métricas.";
   } finally {
     isRefreshing.value = false;
   }
@@ -708,6 +784,20 @@ onMounted(async () => {
             <span>{{ errorMessage }}</span>
           </div>
           <button @click="errorMessage = ''" class="text-red-500 hover:text-red-700 text-sm font-semibold">
+            Fechar
+          </button>
+        </div>
+
+        <!-- Banner de Sucesso Global -->
+        <div
+          v-if="successMessage"
+          class="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 flex items-center justify-between"
+        >
+          <div class="flex items-center space-x-2">
+            <CheckCircle2 class="w-5 h-5 text-emerald-600 flex-shrink-0" />
+            <span>{{ successMessage }}</span>
+          </div>
+          <button @click="successMessage = ''" class="text-emerald-500 hover:text-emerald-700 text-sm font-semibold">
             Fechar
           </button>
         </div>
